@@ -1,0 +1,39 @@
+# Dataset — the arXiv snapshot is ~4-5 GB, never commit it
+data/
+*.json
+*.jsonl
+*.csv
+*.parquet
+
+# Model artifacts
+models/
+checkpoints/
+*.bin
+*.safetensors
+*.ckpt
+*.pt
+
+# Cached embeddings
+*.npy
+*.npz
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# HuggingFace / W&B caches
+.cache/
+wandb/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
