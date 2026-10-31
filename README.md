@@ -139,7 +139,8 @@ The brief asks for three papers referencing the implementation we will use. Our 
 | 2 | **Grootendorst (2022)** — BERTopic | The category-discovery method we implement |
 | 3 | **Lange et al. (2004)** | Answers the assignment's central question: how to choose the number of categories |
 
-Supporting references: Sentence-BERT and SciRepEval/SPECTER2 for the representation comparison,
+Supporting references: Sentence-BERT and SciRepEval/SPECTER2 for why we use a similarity-trained
+encoder and why we compare two rather than trusting one,
 SciBERT and BERT for the classifier, Scharpf et al. for problem history.
 
 ### The main conclusion from reading all this
@@ -149,86 +150,115 @@ categories. The literature disagrees with itself on all three, and the paper clo
 found that the *simpler* option won. So we write down testable predictions and run a controlled
 comparison instead of trusting reputation.
 
-## 1.3 The plan
+## 1.3 What we are being asked to predict
 
-Six stages. Each produces something concrete.
+The brief can be read two ways, so we asked rather than guessed. Iris.ai confirmed the
+second reading:
 
-**Stage 1 — Understand the data.** Abstract lengths, how often each subject appears, how many
-labels papers carry, how imbalanced the classes are, and how this changes over time. Fix the
-train/validation/test split once, here, so every later experiment uses the same split.
+> "You're right, (b) is the better interpretation. Discovering meaningful categories is an
+> important part of the objective, but we leave the exact methodology up to you."
 
-**Stage 2 — Compare representations.** Three options: TF-IDF (counting words, our cheap baseline),
-MiniLM (general-purpose sentence model), and SPECTER2 (science-specific). Keep the clustering method
-and the data fixed so the only thing changing is the representation.
+So the task is settled:
 
-**Stage 3 — Find groups.** Run KMeans across a range of candidate numbers, since KMeans is simple
-and reproducible. Then compare against BERTopic with HDBSCAN, which picks its own number.
+- The categories are **discovered from the abstracts**. Their number is an output, not an input.
+- The classifier predicts **those discovered categories**, not arXiv's subject labels.
+- arXiv's own labels are used **only** to interpret and sanity-check what we found. They never
+  influence how many categories we report.
 
-**Stage 4 — Choose the number of categories.** Judge each option on four things:
+This last point is the one that drives the whole design, so it is worth stating plainly: using
+arXiv labels to choose the number of categories would be circular. It answers an "unknown number"
+question with the known answer. Arcan (2026) does exactly this — it picks the number of clusters by
+maximising `0.5·ARI + 0.5·NMI` against the true labels, and the paper itself concedes this "may
+inflate reported ARI/NMI". We do not repeat it.
 
-| What we measure | How | The question it answers |
+### Three questions, three separate instruments
+
+The central methodological risk here is mixing up two different questions and answering both with
+one number. We keep them apart:
+
+| Question | Instrument | What it may **not** be used for |
 |---|---|---|
-| Separation | Silhouette score | Are the groups actually distinct? |
-| Stability | Agreement across repeated samples | Would we get this again from different data? |
-| Interpretability | Top words and example abstracts per group | Does the group make sense to a human? |
-| Coverage | Group sizes and outlier percentage | Does it classify most papers, or give up on them? |
+| How many categories are there? | Stability across resamples; DBCV / silhouette | Never uses arXiv labels |
+| What are those categories about? | c-TF-IDF terms, nearest-centroid abstracts, composition against arXiv | Not a score |
+| Can a model assign a new abstract? | Macro-F1 on a held-out split | Only comparable within one label set |
 
-Only after comparing all four do we pick a number and report it.
+In particular, **a classifier's macro-F1 is not evidence that a taxonomy is good.** Two classifiers
+trained on different label sets cannot be ranked against each other: a trivial 2-category split
+would score near-perfectly and tell us nothing. Taxonomy quality and classifier quality are
+measured separately, by different tools, and we never trade one against the other.
 
-**Stage 5 — Compare with arXiv's own labels.** For each group we discovered, look at which arXiv
-subjects its papers carry. This tells us whether a group matches an existing subject, merges several,
-or splits one apart. Because papers have multiple labels, we report label *distributions* per group
-rather than pretending each paper has one true class.
+## 1.4 The pipeline we actually ran
 
-**Stage 6 — Train the classifier.** Fine-tune a Hugging Face model on abstracts and measure it on
-held-out data.
+Eight stages, each a script that caches its output so the next one can be re-run without redoing
+the work.
+
+| # | Stage | Script | What it produces |
+|---|---|---|---|
+| 1 | Scan the snapshot | `eda_scan.py`, `eda_year_mix.py` | Corpus statistics, year × archive mix |
+| 2 | Sample and split | `preprocess.py` | 150,000 abstracts, fixed 70/15/15 split |
+| 3 | Embed | `embed.py` | Frozen sentence embeddings, L2-normalised |
+| 4 | Reduce and sweep | `cluster.py` | UMAP to 50d; KMeans k=3..20 and HDBSCAN scored |
+| 5 | **Choose the number** | `stability.py` | Stability curve against a structureless null |
+| 6 | Interpret | `interpret.py` | Per-category terms, examples, arXiv composition |
+| 7 | Classify | `baseline.py`, `train_classifier.py` | Baselines and a fine-tuned BERT |
+| 8 | Tune | `tune.py`, `notebooks/colab_train.ipynb` | Staged search over 13 configurations |
+
+Four decisions inside that pipeline are worth justifying, because each is a place where the obvious
+choice is wrong.
+
+**The encoder is frozen; nothing is trained to produce embeddings.** Every study we reviewed uses
+off-the-shelf sentence embeddings for scientific-document clustering. Fine-tuning an encoder to
+improve clustering is a separate research problem, and Arcan's evidence suggests it would not help:
+the two science-specific models (SciBERT, SPECTER) lost to the two general-purpose ones (MPNet,
+MiniLM) on this exact task. We therefore compare MiniLM and MPNet and skip the specialised pair.
+
+**Only the abstract is encoded — no title.** The brief specifies abstracts, and Arcan found
+abstract-only input beat every richer variant they tried.
+
+**UMAP reduction comes before density clustering.** Density estimates degrade badly in high
+dimensions. Arcan ran HDBSCAN on raw embeddings and it collapsed to 3–5 clusters with up to 74% of
+papers marked as noise, which led them to conclude HDBSCAN was the worst of their three algorithms.
+We treat that as a fixable artefact rather than a property of the algorithm, and §4 reports what
+happens when it is fixed.
+
+**But the number of categories is *not* decided in UMAP space.** UMAP with `min_dist=0.0`
+deliberately manufactures tightly separated clumps. Measured inside that space, every internal
+criterion saturates — our stability score is 1.000 at k=3 and falls monotonically, which would
+simply reproduce the degenerate answer. That measures UMAP's determinism, not structure in the
+data. So the reduction is used where it is needed (density clustering) and the number of categories
+is settled in the original embedding space.
 
 ### Keeping the scope realistic
 
-The full grid of every option above would take weeks of GPU time on 2.7 million papers. We cut it
-deliberately:
+The full dataset is 2.7 million papers and the full hyperparameter grid is 108 training runs.
+Neither is necessary, and we cut both deliberately:
 
-- Work from one fixed stratified sample of about 150,000 abstracts, not the full dataset
-- Compute each set of embeddings **once** and cache them
-- Compare the three representations using KMeans only, then carry the winner forward
-- Test HDBSCAN against that winner only
-- Run stability checks with 5 resamples on a 20,000-paper subset
-- Train the classifier on **one** label set, comparing 3 model variants
+- One fixed stratified sample of 150,000 abstracts, drawn once and committed as a list of arXiv IDs
+- A 10,000-paper pilot, drawn as a subsample of the main sample, to validate every step cheaply
+- Embeddings computed once and cached
+- A staged hyperparameter search — learning rate, then batch size, then encoder, then seeds —
+  which costs 13 runs instead of 108
 
-### What the classifier predicts
+## 1.5 What we expect to find
 
-The brief can be read two ways, so we state our decision plainly.
+Written as predictions we can be wrong about, and scored honestly in §7.
 
-**We train on arXiv's existing subject labels**, collapsed to top-level groups. These are real,
-externally-assigned labels, so accuracy figures mean something and can be compared to published
-work.
-
-Training on our discovered cluster labels instead is a *secondary* experiment. If we report it, we
-describe the result as **agreement with our own clustering**, not as classification accuracy. The
-reason: cluster labels are produced from the embeddings themselves, so a model re-learning them is
-partly marking its own homework. Scores from the two setups are not comparable, because the number
-of classes, the difficulty of the boundaries, and the amount of label noise all differ.
-
-## 1.4 What we expect to find
-
-Written as predictions we can be wrong about.
-
-- **H1:** Sentence embeddings (MiniLM) will produce better-separated clusters than TF-IDF, measured
-  by silhouette and by AMI against arXiv primary labels at the same number of clusters.
-- **H2:** Science-specific embeddings (SPECTER2) will **not** beat general-purpose MiniLM on cluster
-  separation. This follows Arcan (2026); we are testing whether it holds at our scale.
-- **H3:** Stability and silhouette will disagree about the best number of categories. Where they do,
-  we prefer stability, and we say so.
-- **H4:** HDBSCAN will return many more groups than the stability analysis supports, and will leave a
-  large share of papers as outliers.
-- **H5:** Fine-tuned BERT will beat a TF-IDF + LinearSVC baseline on macro-F1. If it does not,
-  something is wrong with our training setup rather than with the baseline.
+- **H1** — Silhouette and stability will disagree about the number of categories. Where they do, we
+  prefer stability and say so.
+- **H2** — HDBSCAN *after* UMAP reduction will not show the collapse Arcan reported, and will leave
+  far less than 74% of papers as noise.
+- **H3** — The discovered categories will not line up with arXiv's 8 groups. We expect them to
+  merge several non-physics groups and split physics, because arXiv's taxonomy reflects community
+  history while abstracts cluster by shared method and vocabulary.
+- **H4** — Our two reference levels will peak at different numbers of clusters: the 8 groups will
+  favour fewer categories, the 20 archives more.
+- **H5** — A fine-tuned BERT will beat a TF-IDF + LinearSVC baseline on macro-F1. If it does not,
+  that is a finding about how lexically separable the discovered categories are, not a bug.
 
 ### How we score things, and why
 
-We report **macro-F1**, not accuracy. The classes are very unbalanced — physics papers hugely
-outnumber economics papers — and accuracy hides this. Published results on arXiv's 8 top-level
-classes show the problem clearly:
+We report **macro-F1**, not accuracy. The categories are very unbalanced, and accuracy hides this
+completely. Published results on arXiv's 8 top-level classes show the problem:
 
 | Model | Accuracy | Macro-F1 |
 |---|---|---|
@@ -236,13 +266,18 @@ classes show the problem clearly:
 | LinearSVC (TF-IDF) | 0.82 | 0.82 |
 
 Naive Bayes looks better on accuracy and is much worse in reality: it does well on the big classes
-and poorly on the small ones. LinearSVC is our baseline to beat, and it is almost free to run.
+and poorly on the small ones. Our own majority-class baseline makes the same point more sharply —
+see §5.
 
 For comparing groupings we use **AMI and ARI** rather than raw NMI. Raw NMI drifts upward as the
-number of clusters grows, which would unfairly reward splitting the data into more groups. AMI and
-ARI correct for chance.
+number of clusters grows, which would unfairly reward splitting the data further. AMI and ARI
+correct for chance (Vinh, Epps & Bailey, JMLR 2010).
 
-## 1.5 What this study contributes
+For density-based clustering we use **DBCV** rather than silhouette. Silhouette assumes convex,
+roughly spherical clusters, which is exactly the assumption HDBSCAN is built to avoid, so applying
+it to HDBSCAN output would penalise the algorithm for working as intended.
+
+## 1.6 What this study contributes
 
 A reproducible, literature-informed comparison of ways to represent and group scientific abstracts.
 We report a number of categories together with the criteria that justify it, show how those
@@ -260,11 +295,119 @@ evidence does not settle a question, we say so rather than picking the flatterin
 
 ## 2. Exploratory data analysis
 
-_Pending._
+`src/eda_scan.py` streams the 5.65 GB snapshot once and never loads it into memory.
+`src/eda_year_mix.py` adds the year × subject cross-tabs. Both write JSON to `reports/`.
+
+**Snapshot v309 — 3,224,635 papers.**
+
+| Property | Value | Why it matters |
+|---|---|---|
+| Papers | 3,224,635 | Pinned to Kaggle version 309 |
+| Empty abstracts | 0 | Nothing to impute |
+| Abstracts under 20 words | 15,567 | Dropped — too short to carry topical signal |
+| Median abstract length | 145 words | 256 wordpiece tokens fits 67.2% whole; 128 would fit 20.5% |
+| Papers with >1 subject label | 48.3% | **There is no single "true" category per paper** |
+| Mean labels per paper | 1.74 (max 13) | |
+| Papers spanning >1 top-level group | 558,087 (17.3%) | Overlap is not just within a field |
+| Distinct archives | 38 (20 still active from 2016) | 18 are legacy archives, retired before 2016 |
+
+![Papers per year](reports/figures/eda_papers_per_year.png)
+
+![Abstract length](reports/figures/eda_abstract_length.png)
+
+Three findings shaped the rest of the work.
+
+**Nearly half of all papers carry more than one label.** This is the single most important fact in
+the dataset. It means arXiv's labels cannot serve as ground truth for a single-label task — there
+is no one right answer to compare against. It is a large part of why we treat the arXiv taxonomy as
+a measuring stick for interpretation rather than as a target.
+
+**The subject mix shifts sharply over time.** Computer science was a minor archive in the 1990s and
+is now the largest. A sample drawn across all years would be a sample of arXiv's *history*, and the
+categories we discovered would partly reflect how the archive's composition changed rather than how
+research topics differ. We therefore restrict to **2016 onward** (2,118,113 papers), which also
+removes all 18 legacy archives cleanly and leaves 20 active ones.
+
+![Archive distribution](reports/figures/eda_archive_distribution.png)
+
+**Class imbalance is extreme and we keep it.** In the drawn sample the largest archive (`cs`) has
+53,930 papers and the smallest (`nucl-ex`) has 354 — a ratio of roughly 150:1. Rebalancing would
+make the number of discovered categories an artefact of our sampling, so the real proportions are
+preserved and the imbalance is handled later, in the classifier's loss function.
+
+### A decision worth recording: no minimum-share cutoff
+
+An earlier version of this work kept only the 14 archives above a 1% share, which covered 96.5% of
+papers. Recomputing on 2016+ data showed the cutoff would keep only 12 archives and **delete `econ`
+and `q-fin` entirely**. Since one of the questions is whether the discovered categories match
+arXiv's, silently removing two of them would have prejudged the answer. All 20 active archives are
+sampled, with no cutoff.
 
 ## 3. Preprocessing
 
-_Pending._
+`src/preprocess.py` makes one streaming pass and writes a fixed sample, a fixed split, and a
+committed list of arXiv IDs.
+
+### Filters
+
+| Filter | Effect |
+|---|---|
+| Submitted 2016 or later | 3,224,635 → 2,118,113 |
+| Abstract of at least 20 words | → 2,113,230 eligible |
+
+### Text cleaning is deliberately minimal
+
+Whitespace is collapsed. **LaTeX is left intact.** Stripping `$\alpha$` or `\nabla` would remove
+real topical signal from mathematics and physics abstracts — in §6 the mathematics category is
+identified partly by the tokens `mathbb` and `mathcal`. The sentence-transformer tokenisers handle
+the markup without help. No stemming, no lowercasing, no stop-word removal: the encoder is
+pretrained on natural text and expects it unmodified.
+
+### Stratified sampling, not random sampling
+
+A uniform random draw would leave the rarest archives with too few papers to form a cluster. The
+sample is therefore **stratified on the primary archive and proportional**, so every archive is
+guaranteed to appear while the real class proportions are preserved. Each archive's rows are drawn
+by reservoir sampling (Algorithm R) against a seeded RNG, in the same single pass.
+
+| Phase | Papers | Purpose |
+|---|---|---|
+| **main** | 150,000 | The reported results |
+| **pilot** | 10,000 | A subsample of main; matches Arcan's scale for direct comparison |
+
+The pilot is drawn *from* the main sample and inherits its split assignment, so no paper ever moves
+between train and test across phases. Validating every step on the pilot first turned a 90-minute
+mistake into a 90-second one several times.
+
+### The split is fixed once, before anything else
+
+| Split | main | pilot |
+|---|---|---|
+| train | 105,000 | 7,022 |
+| validation | 22,499 | 1,544 |
+| test | 22,501 | 1,434 |
+
+Stratified 70/15/15 on the primary archive, seeded. Every later step reads this split; none of them
+recomputes it.
+
+### Reproducibility
+
+The Kaggle dataset is re-published monthly, so "the arXiv dataset" is not a reproducible object. We
+pin **version 309** and commit the sampled arXiv IDs to `data/splits/`, which makes the exact
+sample recoverable even after the dataset changes underneath us.
+
+```
+data/splits/main_ids.csv.gz     150,000 ids + split + clustering flag
+data/splits/pilot_ids.csv.gz     10,000 ids + split + clustering flag
+```
+
+Everything else follows from `SEED = 42` in `src/config.py`, which is the only place paths and
+constants are defined.
+
+A note on where data lives: the raw snapshot (5.65 GB) and the derived embeddings (230 MB) are
+written to `%LOCALAPPDATA%`, **not** into the project folder, which sits inside a synced
+OneDrive directory. Only small, traceable artifacts — statistics, metrics, sampled IDs, figures —
+are committed.
 
 ## 4. Model training
 
@@ -287,12 +430,32 @@ _Pending._
 ## Repository structure
 
 ```
-├── data/                 # empty; dataset is cached outside OneDrive (see Setup)
-├── notebooks/            # analysis notebooks, run in order
-├── src/                  # reusable modules
-├── reports/figures/      # generated plots
-└── README.md             # this report
+├── src/
+│   ├── config.py              # single source of truth: paths, seed, constants
+│   ├── download_data.py       # Kaggle snapshot, pinned to version 309
+│   ├── eda_scan.py            # streaming corpus statistics
+│   ├── eda_year_mix.py        # year x archive / year x group cross-tabs
+│   ├── preprocess.py          # stratified sample + fixed 70/15/15 split
+│   ├── embed.py               # frozen sentence embeddings, cached
+│   ├── cluster.py             # UMAP + KMeans and HDBSCAN sweeps
+│   ├── stability.py           # chooses the number of categories
+│   ├── interpret.py           # c-TF-IDF terms, examples, arXiv composition
+│   ├── baseline.py            # majority / TF-IDF+SVM / embedding+logreg
+│   ├── train_classifier.py    # fine-tunes BERT on the discovered categories
+│   ├── tune.py                # staged hyperparameter search
+│   ├── export_training_set.py # bundles one training set for GPU training
+│   └── figures.py             # every figure in this report
+├── notebooks/
+│   └── colab_train.ipynb      # steps 4-6 on a GPU
+├── data/splits/               # committed arXiv ids — pins the exact sample
+├── reports/                   # metrics, cluster profiles, figures (committed)
+├── requirements.txt
+└── README.md                  # this report
 ```
+
+Large and regenerable artifacts — the 5.65 GB snapshot, the sampled abstracts, the
+embeddings — are written to `%LOCALAPPDATA%\arxiv-iris`, outside this folder. Only small,
+traceable results are committed.
 
 ## Setup
 
@@ -311,3 +474,34 @@ python src/download_data.py
 
 The file is 5.65 GB and is cached under `%LOCALAPPDATA%\kagglehub`, deliberately outside the
 project folder so it is not synced to cloud storage.
+
+## Reproducing the results
+
+Run in order. Every step caches its output and skips unless `--force` is passed.
+
+```bash
+python src/eda_scan.py                 # corpus statistics
+python src/eda_year_mix.py             # year x subject mix
+python src/preprocess.py               # sample + split (writes data/splits/)
+
+# Validate everything on the 10k pilot first
+python src/embed.py      --phase pilot --model minilm
+python src/cluster.py    --phase pilot --model minilm
+python src/stability.py  --phase pilot --model minilm
+python src/interpret.py  --phase pilot --model minilm --algorithm hdbscan --mcs 100
+python src/baseline.py   --phase pilot --labels hdbscan_mcs100
+
+# Then the reported 150k run
+python src/embed.py      --phase main  --model minilm
+python src/cluster.py    --phase main  --model minilm
+python src/stability.py  --phase main  --model minilm
+python src/interpret.py  --phase main  --model minilm --algorithm kmeans --k 7
+
+python src/figures.py    --phase main  --model minilm
+```
+
+Fine-tuning runs on a GPU. Export the training set, then run `notebooks/colab_train.ipynb`:
+
+```bash
+python src/export_training_set.py --phase main --labels kmeans_k7
+```

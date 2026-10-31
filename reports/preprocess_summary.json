@@ -1,0 +1,45 @@
+{
+  "dataset_version": "309",
+  "seed": 42,
+  "year_min": 2016,
+  "min_abstract_words": 20,
+  "split_fractions": [
+    0.7,
+    0.15,
+    0.15
+  ],
+  "main": {
+    "n_papers": 150000,
+    "scanned": 3224635,
+    "eligible_after_filters": 2113230,
+    "archives": 20,
+    "groups": 8,
+    "splits": {
+      "train": 105000,
+      "test": 22501,
+      "val": 22499
+    },
+    "cluster_set": 50000,
+    "largest_archive": "cs (53,930)",
+    "smallest_archive": "nucl-ex (354)",
+    "multi_label_pct": 52.7,
+    "abstract_words_median": 159
+  },
+  "pilot": {
+    "n_papers": 10000,
+    "scanned": null,
+    "eligible_after_filters": null,
+    "archives": 20,
+    "groups": 8,
+    "splits": {
+      "train": 7022,
+      "val": 1544,
+      "test": 1434
+    },
+    "cluster_set": 5000,
+    "largest_archive": "cs (2,977)",
+    "smallest_archive": "nucl-ex (119)",
+    "multi_label_pct": 54.0,
+    "abstract_words_median": 158
+  }
+}

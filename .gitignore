@@ -1,9 +1,19 @@
-# Dataset — the arXiv snapshot is ~4-5 GB, never commit it
-data/
-*.json
+# Dataset and derived data are large and regenerable, and live outside this folder.
+# Exception: data/splits holds the sampled arXiv ids, which are small and ARE
+# committed — they pin the exact sample so results stay reproducible even though
+# the Kaggle dataset is re-published monthly.
+data/*
+!data/splits/
 *.jsonl
-*.csv
 *.parquet
+
+# Results are committed so the report's numbers are traceable.
+*.json
+!reports/*.json
+
+# Reference papers kept locally, not redistributed
+papers/
+*.pdf
 
 # Model artifacts
 models/

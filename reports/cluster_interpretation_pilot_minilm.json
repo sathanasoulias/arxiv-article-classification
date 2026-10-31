@@ -1,0 +1,122 @@
+{
+  "phase": "pilot",
+  "model": "minilm",
+  "config": "hdbscan_mcs100",
+  "n_clusters": 7,
+  "n_papers": 10000,
+  "noise_pct": 11.0,
+  "seed": 42,
+  "agreement": {
+    "primary_archive": {
+      "homogeneity": 0.4883,
+      "completeness": 0.7512,
+      "v_measure": 0.5919
+    },
+    "primary_group": {
+      "homogeneity": 0.499,
+      "completeness": 0.4744,
+      "v_measure": 0.4864
+    }
+  },
+  "terms": {
+    "0": [
+      "model",
+      "models",
+      "learning",
+      "performance",
+      "framework",
+      "network",
+      "training",
+      "problem",
+      "information",
+      "algorithm",
+      "existing",
+      "neural"
+    ],
+    "1": [
+      "quantum",
+      "states",
+      "state",
+      "phase",
+      "magnetic",
+      "spin",
+      "systems",
+      "field",
+      "temperature",
+      "optical",
+      "coupling",
+      "energy"
+    ],
+    "2": [
+      "decay",
+      "mass",
+      "nuclear",
+      "energy",
+      "collisions",
+      "bar",
+      "gev",
+      "model",
+      "qcd",
+      "decays",
+      "neutrino",
+      "matter"
+    ],
+    "3": [
+      "galaxies",
+      "stars",
+      "stellar",
+      "mass",
+      "observations",
+      "galaxy",
+      "emission",
+      "star",
+      "gas",
+      "magnetic",
+      "formation",
+      "observed"
+    ],
+    "4": [
+      "black",
+      "gravity",
+      "hole",
+      "field",
+      "theory",
+      "gravitational",
+      "quantum",
+      "scalar",
+      "spacetime",
+      "holes",
+      "gauge",
+      "energy"
+    ],
+    "5": [
+      "mathbb",
+      "prove",
+      "mathcal",
+      "group",
+      "problem",
+      "groups",
+      "space",
+      "let",
+      "graph",
+      "equation",
+      "finite",
+      "class"
+    ],
+    "6": [
+      "flow",
+      "model",
+      "dynamics",
+      "surface",
+      "water",
+      "fluid",
+      "numerical",
+      "simulations",
+      "active",
+      "cell",
+      "liquid",
+      "molecular"
+    ]
+  },
+  "label_file": "labels_minilm_hdbscan_mcs100.npy"
+}

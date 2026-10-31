@@ -1,0 +1,39 @@
+{
+  "phase": "pilot",
+  "embed_model": "minilm",
+  "label_source": "labels_minilm_hdbscan_mcs100.npy",
+  "n_classes": 7,
+  "noise_handling": "drop",
+  "n_noise_abstracts": 1100,
+  "rows": {
+    "train": 6267,
+    "val": 1377,
+    "test": 1256
+  },
+  "seed": 42,
+  "metric_note": "macro-F1 is the headline metric; accuracy is reported only to show how far the majority baseline gets without learning anything",
+  "baselines": {
+    "majority": {
+      "macro_f1": 0.0924,
+      "weighted_f1": 0.309,
+      "accuracy": 0.4779,
+      "fit_seconds": 0.0
+    },
+    "tfidf_svm": {
+      "macro_f1": 0.9206,
+      "weighted_f1": 0.954,
+      "accuracy": 0.9542,
+      "fit_seconds": 27.1,
+      "test": {
+        "macro_f1": 0.9446
+      }
+    },
+    "embed_logreg": {
+      "macro_f1": 0.9436,
+      "weighted_f1": 0.9635,
+      "accuracy": 0.963,
+      "fit_seconds": 10.5,
+      "note": "diagnostic only \u2014 the clusters were defined in this embedding space, so this measures their linear separability, not generalisation from raw text"
+    }
+  }
+}
