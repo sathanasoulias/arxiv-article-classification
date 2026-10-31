@@ -221,6 +221,8 @@ def save_phase(name, df):
     df.to_parquet(parquet, index=False)
 
     SPLITS_DIR.mkdir(parents=True, exist_ok=True)
+    # Read this back with dtype={"id": str}: arXiv ids look numeric, so pandas
+    # parses them as float64 by default and would drop a leading zero.
     ids_file = SPLITS_DIR / f"{name}_ids.csv.gz"
     df[["id", "primary_archive", "primary_group", "split", "in_cluster_set"]].to_csv(
         ids_file, index=False, compression="gzip"
