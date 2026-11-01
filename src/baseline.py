@@ -128,8 +128,11 @@ def main():
     results["embed_logreg"] = score(
         "embed+logreg", val["y"], lr.predict(X[mask["val"]]), time.time() - t)
     results["embed_logreg"]["note"] = (
-        "diagnostic only — the clusters were defined in this embedding space, so "
-        "this measures their linear separability, not generalisation from raw text"
+        "diagnostic only, and near-tautological for KMeans labels: a KMeans partition "
+        "is a Voronoi tessellation of this exact space, so it is linearly separable "
+        "here by construction. The number measures how cleanly the clustering cut the "
+        "space, not whether the categories can be recovered from raw text. Only the "
+        "tf-idf and transformer figures speak to that."
     )
 
     summary = {

@@ -324,7 +324,11 @@ def fig_stability(phase, model, space="embedding"):
     s = json.loads(path.read_text(encoding="utf-8"))
     curve = pd.DataFrame(s["curve"])
 
-    fig, ax = figure(9, 4.6)
+    sel = s["selection"]
+    fig, ax = figure(9.4, 4.8)
+
+    # The decision is made on the lower bound, so the band is what the reader
+    # should be looking at, not the mean line alone.
     ax.fill_between(curve.k, curve.stability - curve.sd,
                     curve.stability + curve.sd,
                     color=CATEGORICAL[0], alpha=0.16, zorder=2, linewidth=0)
@@ -333,31 +337,46 @@ def fig_stability(phase, model, space="embedding"):
     ax.plot(curve.k, curve["null"], color=INK_MUTED, linewidth=1.8,
             linestyle=(0, (5, 3)), zorder=3)
 
-    ax.text(curve.k.iloc[-1], curve.stability.iloc[-1], "  observed",
-            color=CATEGORICAL[0], fontsize=9.5, va="center", fontweight="bold")
-    ax.text(curve.k.iloc[-1], curve["null"].iloc[-1], "  null",
-            color=INK_MUTED, fontsize=9.5, va="center")
+    ax.text(curve.k.iloc[-1] + 0.25, curve.stability.iloc[-1],
+            "observed\n(±1 sd)", color=INK_2, fontsize=9, va="center")
+    ax.text(curve.k.iloc[-1] + 0.25, curve["null"].iloc[-1], "null",
+            color=INK_2, fontsize=9, va="center")
 
-    sel = s["selection"]
     ax.axhline(sel["threshold"], color=INK_2, linewidth=1,
                linestyle=(0, (2, 3)), zorder=2)
-    ax.text(curve.k.min(), sel["threshold"] + 0.012,
+    ax.text(curve.k.min(), sel["threshold"] + 0.015,
             f"stable threshold {sel['threshold']}", fontsize=8.5, color=INK_2)
 
-    chosen = sel["largest_stable_k"]
+    # Every k that clears the threshold on its lower bound.
+    robust = curve[curve.k.isin(sel.get("robust_k_values", []))]
+    if len(robust):
+        ax.scatter(robust.k, robust.stability, s=46, color=CATEGORICAL[0],
+                   zorder=5, edgecolors=SURFACE, linewidths=1.2)
+
+    chosen = sel.get("selected_k", sel.get("largest_stable_k"))
     row = curve[curve.k == chosen]
     if len(row):
-        ax.scatter(row.k, row.stability, s=150, facecolors="none",
-                   edgecolors=INK, linewidths=1.6, zorder=5)
-        ax.annotate(f"k={chosen}\nmost granular stable solution",
-                    xy=(chosen, float(row.stability.iloc[0])),
-                    xytext=(10, -26), textcoords="offset points",
-                    fontsize=9, color=INK)
+        ax.scatter(row.k, row.stability, s=170, facecolors="none",
+                   edgecolors=INK, linewidths=1.8, zorder=6)
+        n_robust = len(sel.get("robust_k_values", []))
+        ax.annotate(
+            f"k={chosen}\nmost granular solution whose\n"
+            f"stability holds up across resamples"
+            + (f"\n({n_robust} values clear the threshold)" if n_robust else ""),
+            xy=(chosen, float(row.stability.iloc[0])),
+            xytext=(chosen + 0.4, 0.44), textcoords="data",
+            fontsize=9, color=INK, va="top",
+            arrowprops=dict(arrowstyle="-", color=INK_2, linewidth=1,
+                            shrinkA=0, shrinkB=10))
 
-    style(ax, f"Cluster stability in {space} space",
-          xlabel="number of clusters (k)",
+    title = ("How many categories? Stability in the embedding space"
+             if space == "embedding"
+             else "The same measurement inside UMAP space saturates")
+    style(ax, title, xlabel="number of clusters (k)",
           ylabel="ARI between independent subsamples")
     ax.set_xticks(list(curve.k))
+    ax.set_xlim(curve.k.min() - 0.5, curve.k.max() + 2.2)
+    ax.set_ylim(-0.03, 1.06)
     save(fig, f"stability_{phase}_{space}.png",
          f"{s['reps']} subsample pairs per k on {s['n_papers']:,} papers. "
          f"Null: {s['null_model']}. No arXiv label is consulted.")
@@ -439,9 +458,15 @@ def fig_umap(phase, model, labels_config, cap=25_000):
         for s in ax.spines.values():
             s.set_color(GRID)
 
+    has_noise = bool((labels == -1).any())
     save(fig, f"umap_overview_{phase}.png",
          "Every category is labelled in place, so identity never depends on colour "
-         "alone. Grey points are abstracts HDBSCAN left unassigned.")
+         "alone. "
+         + ("Grey points are abstracts the clustering left unassigned. "
+            if has_noise else
+            "Categories fitted in the full 384-dimensional space can overlap in this "
+            "2D projection without overlapping where they were defined. ")
+         + "Positions come from a 2D UMAP used for display only.")
 
     # --- small multiples: one panel per discovered category --------------------
     n = len(clusters)
@@ -475,17 +500,16 @@ def fig_umap(phase, model, labels_config, cap=25_000):
          "reliably under colour-vision deficiency.")
 
 
-def fig_composition(phase, model):
-    path = REPORTS / f"cluster_profiles_{phase}_{model}.md"
-    comp = REPORTS / f"cluster_composition_{phase}_{model}.csv"
-    if not comp.exists():
+def fig_composition(phase, model, config=None):
+    # One interpretation file per clustering configuration; pick the requested
+    # one, or the only one present.
+    found = sorted(REPORTS.glob(f"cluster_interpretation_{phase}_{model}_*.json"))
+    if config:
+        found = [f for f in found if f.stem.endswith(config)] or found
+    if not found:
         print("  skip composition heatmap: run interpret.py first")
         return
-
-    # Rebuild the contingency table from the markdown report's committed source.
-    labels_json = load_json(f"cluster_interpretation_{phase}_{model}.json")
-    if not labels_json:
-        return
+    labels_json = json.loads(found[0].read_text(encoding="utf-8"))
     label_file = work_path(phase, labels_json["label_file"])
     if not label_file.exists():
         return
@@ -518,10 +542,28 @@ def fig_composition(phase, model):
     cb.ax.tick_params(colors=INK_2, length=0, labelsize=8)
     cb.outline.set_visible(False)
 
-    save(fig, f"cluster_archive_heatmap_{phase}.png",
-         "Rows sum to 100%. The discovered categories merge all of computer science, "
-         "statistics and economics into one, while splitting physics into several — "
-         "the opposite of how arXiv organises its groups.")
+    # Describe the actual relationship rather than asserting a fixed one: which
+    # archives got split across several categories, and how many categories all of
+    # physics collapsed into.
+    from config import PHYSICS_ARCHIVES
+    top_archive = pct.idxmax(axis=1)
+    split = top_archive.value_counts()
+    split = split[split > 1]
+    physics_clusters = sum(1 for a in top_archive if a in PHYSICS_ARCHIVES)
+
+    parts = []
+    if len(split):
+        parts.append("splits " + ", ".join(
+            f"{a} across {n} categories" for a, n in split.items()))
+    if physics_clusters:
+        parts.append(f"covers all 13 physics archives with {physics_clusters}")
+    detail = ("The taxonomy " + "; ".join(parts) + ". "
+              if parts else "")
+
+    save(fig, f"cluster_archive_heatmap_{phase}_{labels_json['config']}.png",
+         "Rows sum to 100%. " + detail
+         + "arXiv does the reverse: one archive for all of computer science, one "
+           "group for all of physics.")
 
 
 def fig_confusion(phase, labels_config):
@@ -587,7 +629,7 @@ def main():
     fig_hdbscan(args.phase, args.model)
     fig_stability(args.phase, args.model, "embedding")
     fig_stability(args.phase, args.model, "umap")
-    fig_composition(args.phase, args.model)
+    fig_composition(args.phase, args.model, args.labels)
     fig_umap(args.phase, args.model, args.labels, args.scatter_cap)
     fig_confusion(args.phase, args.labels)
 

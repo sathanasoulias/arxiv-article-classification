@@ -1,0 +1,138 @@
+{
+  "phase": "pilot",
+  "model": "minilm",
+  "config": "kmeans_k8_emb",
+  "space": "embedding",
+  "algorithm": "kmeans",
+  "n_clusters": 8,
+  "n_papers": 10000,
+  "noise_pct": 0.0,
+  "seed": 42,
+  "agreement": {
+    "primary_archive": {
+      "homogeneity": 0.4327,
+      "completeness": 0.5165,
+      "v_measure": 0.4709
+    },
+    "primary_group": {
+      "homogeneity": 0.4709,
+      "completeness": 0.3357,
+      "v_measure": 0.392
+    }
+  },
+  "terms": {
+    "0": [
+      "algorithm",
+      "problem",
+      "model",
+      "optimal",
+      "control",
+      "performance",
+      "systems",
+      "network",
+      "algorithms",
+      "information",
+      "framework",
+      "optimization"
+    ],
+    "1": [
+      "equation",
+      "equations",
+      "solutions",
+      "numerical",
+      "solution",
+      "flow",
+      "model",
+      "boundary",
+      "problem",
+      "nonlinear",
+      "dynamics",
+      "function"
+    ],
+    "2": [
+      "models",
+      "language",
+      "model",
+      "llms",
+      "reasoning",
+      "tasks",
+      "performance",
+      "large",
+      "learning",
+      "framework",
+      "knowledge",
+      "training"
+    ],
+    "3": [
+      "stars",
+      "black",
+      "mass",
+      "galaxies",
+      "stellar",
+      "observations",
+      "star",
+      "emission",
+      "galaxy",
+      "hole",
+      "field",
+      "gravitational"
+    ],
+    "4": [
+      "quantum",
+      "states",
+      "phase",
+      "state",
+      "magnetic",
+      "spin",
+      "systems",
+      "field",
+      "temperature",
+      "coupling",
+      "energy",
+      "optical"
+    ],
+    "5": [
+      "decay",
+      "nuclear",
+      "energy",
+      "mass",
+      "collisions",
+      "model",
+      "bar",
+      "gev",
+      "qcd",
+      "neutrino",
+      "decays",
+      "measurements"
+    ],
+    "6": [
+      "mathbb",
+      "mathcal",
+      "theory",
+      "group",
+      "prove",
+      "algebra",
+      "space",
+      "groups",
+      "functions",
+      "finite",
+      "field",
+      "conjecture"
+    ],
+    "7": [
+      "learning",
+      "models",
+      "model",
+      "neural",
+      "image",
+      "training",
+      "network",
+      "performance",
+      "deep",
+      "networks",
+      "images",
+      "accuracy"
+    ]
+  },
+  "label_file": "labels_minilm_kmeans_k8_emb.npy"
+}

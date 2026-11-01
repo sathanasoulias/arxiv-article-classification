@@ -411,7 +411,220 @@ are committed.
 
 ## 4. Model training
 
-_Pending._
+This section covers both models the task needs: the unsupervised one that discovers the
+categories, and the supervised one that learns to assign them.
+
+### 4.1 Representation
+
+Abstracts are encoded with a frozen sentence-transformer. Nothing is trained here.
+
+| | |
+|---|---|
+| Model | `sentence-transformers/all-MiniLM-L6-v2` (384d, max 256 tokens) |
+| Input | abstract only, no title |
+| Output | L2-normalised float32 |
+| Throughput | 150,000 abstracts in 81.7 min on CPU (30.6 rows/s) |
+
+Three choices, each with a reason:
+
+**Frozen, not fine-tuned.** Every study reviewed in §1.2 uses off-the-shelf embeddings for
+this task. Fine-tuning an encoder to improve clustering is a separate research problem,
+and the one paper that measured it on this exact data found the two *science-specific*
+models (SciBERT, SPECTER) lost to the two general-purpose ones.
+
+**Abstract only.** The brief specifies abstracts, and Arcan (2026) found abstract-only
+input beat every richer variant they tried.
+
+**L2-normalised.** This makes Euclidean distance and cosine similarity equivalent, which
+is what KMeans assumes. Without it, KMeans would be clustering on vector magnitude —
+roughly, on how long the abstract is.
+
+### 4.2 Finding candidate groupings
+
+Two algorithms with complementary failure modes are swept, so neither one's assumptions
+go unchallenged:
+
+- **KMeans**, k = 3…20. Assigns every paper, assumes roughly convex clusters.
+- **HDBSCAN**, `min_cluster_size` from 0.2% to 4% of the corpus. Finds its own number of
+  clusters and can refuse to assign a paper.
+
+HDBSCAN is run on a 50-dimensional UMAP reduction. This is the fix for the failure
+described in §1.4: density estimates degrade badly in high dimensions, and Arcan ran
+HDBSCAN on raw vectors.
+
+#### The UMAP fix works, and it is the clearest single result
+
+| | Arcan (no reduction) | This work (UMAP → 50d) |
+|---|---|---|
+| Clusters found | 3–5 | **7** |
+| Papers left as noise | up to **74%** | **11.0%** |
+| ARI vs arXiv archives | 0.01–0.03 | **0.504** |
+| DBCV | not reported | 0.681 |
+
+Their conclusion was that HDBSCAN "performed worst by a wide margin." On this evidence
+that was an artefact of the missing reduction step, not a property of the algorithm. The
+resulting ARI of 0.504 also exceeds their best reported figure of 0.470 — and ours was
+obtained without ever looking at the labels to choose a configuration, while theirs was
+obtained by maximising against them.
+
+![HDBSCAN sweep](reports/figures/clustering_hdbscan_pilot.png)
+
+One number is deliberately *not* compared: our silhouette scores (0.41–0.59) dwarf
+Arcan's (0.063), but only because ours are measured inside the UMAP reduction, which
+compresses clusters by construction. The two figures are not commensurable and we do not
+claim an improvement there.
+
+### 4.3 Choosing the number of categories
+
+This is the question the brief actually asks, so it gets its own instrument.
+
+#### Why not silhouette
+
+![k sweep](reports/figures/clustering_k_sweep_pilot.png)
+
+Silhouette's optimum is **k=3** (0.586) — a solution in which a single cluster holds
+**44.3% of the entire corpus**. Silhouette rewards a small number of well-separated blobs,
+which is exactly the wrong bias when the question is how finely the data divides. It is
+reported, and it does not decide anything.
+
+The two reference levels also disagree, as predicted in H4: ARI against the 20 archives
+peaks at k=6, AMI against the 8 groups peaks at k=4. Coarser reference, coarser answer.
+Neither is used for selection — they appear here only to show that no single external
+ruler could have settled this either.
+
+#### Stability, and a null that actually works
+
+Stability asks whether a grouping is *reproducible*: cluster two independent 80%
+subsamples, measure how much they agree (ARI) on the papers both saw, repeat ten times.
+
+The subtlety is the null. ARI is chance-corrected, so random *labellings* score 0 — but
+that is not the relevant comparison, because KMeans will happily carve a featureless blob
+the same way twice. The null has to be structureless data of the same shape.
+
+**A first attempt at this failed, and the failure is worth recording.** Shuffling each
+embedding coordinate independently preserves every marginal distribution while destroying
+the joint structure — a standard trick, and wrong here. UMAP coordinates are strongly
+multi-modal, so the product-of-marginals distribution keeps pronounced lumps at the
+cross-products of the modes, and KMeans recovers them reproducibly. The "structureless"
+null scored **0.9998**. Any margin computed against it measured how fast the null decayed,
+not whether real structure existed, and it selected k=16 for no good reason.
+
+The null used instead is **points drawn uniformly on the unit sphere** — the correct shape
+for L2-normalised vectors, and genuinely without structure. It scores **0.006–0.014**
+across the whole sweep, which is what a null should look like.
+
+#### And a space that actually discriminates
+
+Stability must also be measured somewhere sensible. Inside the UMAP reduction it
+saturates: 1.000 at k=3, declining monotonically, which would simply reproduce
+silhouette's degenerate answer. `min_dist=0.0` manufactures hard-separated clumps, so what
+is being measured there is UMAP's determinism rather than structure in the data.
+
+The number of categories is therefore decided in the **original embedding space**. UMAP is
+used where it is needed — density clustering — and nowhere else.
+
+![Stability](reports/figures/stability_pilot_embedding.png)
+
+#### The selection rule
+
+Ben-Hur et al. require scores that are both high *and* concentrated, so the decision is
+made on a one-standard-deviation lower bound rather than on the mean. This matters: on the
+mean alone the rule selects k=11 (0.849 ± 0.067) over k=8 (0.942 ± 0.020), which inverts
+the evidence.
+
+| k | stability | sd | lower bound | clears 0.80? |
+|---|---|---|---|---|
+| 3 | 0.9669 | 0.0217 | 0.945 | yes |
+| 4 | 0.9634 | 0.0302 | 0.933 | yes |
+| 5 | 0.9726 | 0.0051 | **0.968** | yes (global peak) |
+| 6 | 0.8525 | 0.1167 | 0.736 | no |
+| 7 | 0.8434 | 0.1294 | 0.714 | no |
+| **8** | **0.9421** | **0.0203** | **0.922** | **yes — selected** |
+| 9 | 0.8789 | 0.0947 | 0.784 | no |
+| 10–20 | ≤ 0.879 | — | ≤ 0.782 | no |
+
+Four values clear the bar: **k ∈ {3, 4, 5, 8}**. Among reproducible taxonomies the more
+informative one is preferred — a two-way split is perfectly stable and useless — so the
+answer is the largest of them.
+
+The shape of the curve supports this independently. k=6 and k=7 are *unstable* (sd 0.117
+and 0.129), and k=8 is a sharp local maximum with the second-lowest variance in the sweep.
+That is the signature of a real boundary: the algorithm is being forced to invent a split
+at 6 and 7, and finds a genuine one at 8.
+
+> **Answer: 8 categories.** Independent corroboration: HDBSCAN, a different algorithm in a
+> different space with no k supplied, settles on **7**.
+
+### 4.4 What the eight categories are
+
+`interpret.py` describes each category three ways — the words that distinguish it
+(c-TF-IDF), the papers nearest its centre, and which arXiv archives land in it.
+
+| # | Share | Reading | Dominant archive |
+|---|---|---|---|
+| 0 | 20.3% | Algorithms, optimisation and control | `cs` (43%) |
+| 1 | 10.6% | Differential equations and numerical analysis | `math` (48%) |
+| 2 | 10.0% | **Language models and NLP** | `cs` (93%) |
+| 3 | 9.8% | Astrophysics and gravitation | `astro-ph` (69%) |
+| 4 | 13.6% | Condensed matter and quantum systems | `cond-mat` (47%) |
+| 5 | 8.4% | High-energy and nuclear physics | `hep-ph` (32%) |
+| 6 | 12.5% | Pure mathematics and algebra | `math` (68%) |
+| 7 | 15.0% | Machine learning and computer vision | `cs` (73%) |
+
+Cluster names are our reading of the evidence, not model output. The largest category
+holds 20.3% of the corpus and every paper is assigned.
+
+![UMAP overview](reports/figures/umap_overview_pilot.png)
+
+#### The finding: this is not arXiv's taxonomy, and that is the point
+
+Two structural differences, both visible in the figure above.
+
+**It splits what arXiv merges.** All of computer science is one arXiv archive. The data
+divides it into three categories that share almost no vocabulary: optimisation and control
+(cluster 0), language models (cluster 2), and vision and deep learning (cluster 7).
+Mathematics splits in two along the applied/pure line.
+
+**It merges what arXiv splits.** arXiv maintains thirteen separate physics archives; the
+discovered taxonomy covers all of them with three categories, and puts `astro-ph`
+together with `gr-qc` because papers about galaxies and papers about black holes share a
+vocabulary.
+
+Most striking: **cluster 2 is a category arXiv does not have.** Its top terms are `llms`,
+`language`, `reasoning`, `models`. There is no arXiv archive for large language models —
+the taxonomy predates them, and new work is filed under the general `cs` umbrella. The
+method recovered a research area that the official taxonomy cannot express. This is the
+clearest argument for discovering categories rather than inheriting them, and it is not an
+argument we could have made from agreement scores.
+
+That also explains why agreement with arXiv is *lower* for this taxonomy than for the
+7-cluster HDBSCAN one (completeness 0.52 vs 0.75 against archives). Splitting `cs` into
+three necessarily reduces completeness against a reference that keeps it whole. The lower
+score reflects a more informative taxonomy, which is precisely why §1.3 forbids using
+agreement scores to choose between taxonomies.
+
+![Composition](reports/figures/cluster_archive_heatmap_pilot_kmeans_k8_emb.png)
+
+### 4.5 The classifier
+
+With the categories fixed, the supervised task is ordinary: read an abstract, predict one
+of the eight.
+
+| | |
+|---|---|
+| Encoder | `bert-base-uncased` (the brief's HuggingFace filter is `search=bert-base`) |
+| Targets | the eight discovered categories |
+| Max length | 256 tokens |
+| Loss | cross-entropy, inverse-frequency class weights |
+| Selection | validation macro-F1, early stopping with patience 2 |
+
+Imbalance is handled with **weights in the loss, not resampling**, so every abstract is
+seen exactly once per epoch and the sampling distribution fixed in §3 survives intact.
+
+Fine-tuning runs on a GPU: a single CPU run takes roughly 1.5 hours and the search in §6
+needs thirteen of them. `src/export_training_set.py` writes one self-contained file and
+`notebooks/colab_train.ipynb` consumes it on a T4. Everything upstream stays in this
+repository under a fixed seed, so the notebook cannot re-derive the labels differently.
 
 ## 5. Evaluation
 

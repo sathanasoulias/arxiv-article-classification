@@ -22,8 +22,8 @@ conflated (the reverse).
 
 Input:   WORK_DIR/<phase>/umap_<model>_50d.npy, sample.parquet
 Outputs: WORK_DIR/<phase>/labels_<model>_<config>.npy   (reused by the classifier)
-         reports/cluster_profiles_<phase>_<model>.md
-         reports/cluster_composition_<phase>_<model>.csv
+         reports/cluster_profiles_<phase>_<model>_<config>.md
+         reports/cluster_composition_<phase>_<model>_<config>.csv
 Usage:   python interpret.py --phase pilot --model minilm --algorithm kmeans --k 7
          python interpret.py --phase main --model minilm --algorithm hdbscan --mcs 1500
 """
@@ -62,6 +62,27 @@ BOILERPLATE = {
     "first", "second", "general", "particular", "due", "within", "via", "le", "non",
 }
 TOKEN = re.compile(r"(?u)\b[a-z][a-z-]{2,}\b")   # drops digits and LaTeX fragments
+
+
+def load_space(phase, model, space, algorithm):
+    """Load the matrix the final partition is fitted in.
+
+    KMeans is fitted in the same space where k was chosen (stability.py works on the
+    raw L2-normalised embeddings), because selecting a number in one space and then
+    producing the partition in another is not a claim the evidence supports.
+
+    HDBSCAN always uses the UMAP reduction: density estimates degrade in high
+    dimensions, and without the reduction it collapses — which is exactly the failure
+    Arcan (2026) reported.
+    """
+    if algorithm == "hdbscan" and space != "umap":
+        print("  note: HDBSCAN requires the UMAP reduction; using umap space")
+        space = "umap"
+    path = (work_path(phase, f"umap_{model}_{UMAP_DIMS}d.npy") if space == "umap"
+            else work_path(phase, f"embeddings_{model}.npy"))
+    if not path.exists():
+        raise FileNotFoundError(f"{path} missing")
+    return np.load(path), space
 
 
 def fit_clustering(X, algorithm, k, mcs):
@@ -163,7 +184,7 @@ def agreement(labels, df):
 def write_report(path, meta, terms, reps, comp, scores, tab_archive):
     lines = [
         f"# Discovered categories — {meta['phase']}/{meta['model']}, "
-        f"{meta['config']}",
+        f"{meta['config']} ({meta['space']} space)",
         "",
         f"{meta['n_clusters']} clusters over {meta['n_papers']:,} abstracts"
         + (f", {meta['noise_pct']}% left unassigned as noise."
@@ -221,16 +242,21 @@ def main():
     ap.add_argument("--algorithm", choices=["kmeans", "hdbscan"], default="kmeans")
     ap.add_argument("--k", type=int, default=7, help="kmeans only")
     ap.add_argument("--mcs", type=int, default=100, help="hdbscan min_cluster_size")
+    ap.add_argument("--space", choices=["embedding", "umap"], default="embedding",
+                    help="where the partition is fitted; hdbscan always uses umap")
     args = ap.parse_args()
 
+    X, space = load_space(args.phase, args.model, args.space, args.algorithm)
     config = (f"kmeans_k{args.k}" if args.algorithm == "kmeans"
               else f"hdbscan_mcs{args.mcs}")
+    if space == "embedding":
+        config += "_emb"
 
-    X = np.load(work_path(args.phase, f"umap_{args.model}_{UMAP_DIMS}d.npy"))
     df = pd.read_parquet(work_path(args.phase, "sample.parquet"))
     assert len(X) == len(df)
 
-    print(f"\n[{args.phase}/{args.model}] {config} on {len(df):,} abstracts")
+    print(f"\n[{args.phase}/{args.model}] {config} on {len(df):,} abstracts "
+          f"in {space} space ({X.shape[1]}d)")
     labels = fit_clustering(X, args.algorithm, args.k, args.mcs)
     n_clusters = len({c for c in labels if c >= 0})
     noise_pct = round(100 * float((labels == -1).mean()), 1)
@@ -247,15 +273,16 @@ def main():
     scores = agreement(labels, df)
 
     meta = {"phase": args.phase, "model": args.model, "config": config,
+            "space": space, "algorithm": args.algorithm,
             "n_clusters": n_clusters, "n_papers": len(df), "noise_pct": noise_pct}
 
     REPORTS.mkdir(exist_ok=True)
-    comp.to_csv(REPORTS / f"cluster_composition_{args.phase}_{args.model}.csv",
+    comp.to_csv(REPORTS / f"cluster_composition_{args.phase}_{args.model}_{config}.csv",
                 index=False)
-    md = REPORTS / f"cluster_profiles_{args.phase}_{args.model}.md"
+    md = REPORTS / f"cluster_profiles_{args.phase}_{args.model}_{config}.md"
     write_report(md, meta, terms, reps, comp, scores, tab_archive)
 
-    (REPORTS / f"cluster_interpretation_{args.phase}_{args.model}.json").write_text(
+    (REPORTS / f"cluster_interpretation_{args.phase}_{args.model}_{config}.json").write_text(
         json.dumps({**meta, "seed": SEED, "agreement": scores,
                     "terms": {str(c): t for c, t in terms.items()},
                     "label_file": label_file.name}, indent=2), encoding="utf-8")

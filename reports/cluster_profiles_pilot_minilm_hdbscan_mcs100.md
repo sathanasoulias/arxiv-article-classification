@@ -1,4 +1,4 @@
-# Discovered categories — pilot/minilm, hdbscan_mcs100
+# Discovered categories — pilot/minilm, hdbscan_mcs100 (umap space)
 
 7 clusters over 10,000 abstracts, 11.0% left unassigned as noise.
 

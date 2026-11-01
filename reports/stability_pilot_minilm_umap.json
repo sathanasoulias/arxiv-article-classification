@@ -1,0 +1,178 @@
+{
+  "phase": "pilot",
+  "model": "minilm",
+  "space": "umap",
+  "n_papers": 10000,
+  "reps": 10,
+  "subsample_frac": 0.8,
+  "seed": 42,
+  "criterion": "mean ARI between independently subsampled clusterings; no external label is consulted at any point",
+  "null_model": "uniform in per-dimension bounding box",
+  "selection": {
+    "rule": "largest k whose stability minus one standard deviation stays at or above 0.8",
+    "peak_k": 3,
+    "peak_stability": 1.0,
+    "selected_k": 20,
+    "selected_stability": 0.8584,
+    "selected_sd": 0.0463,
+    "selected_lower_bound": 0.8121,
+    "threshold": 0.8,
+    "robust_k_values": [
+      3,
+      4,
+      5,
+      6,
+      7,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20
+    ],
+    "local_maxima": [
+      3,
+      7,
+      11,
+      16,
+      20
+    ],
+    "curve_is_monotonic_decreasing": false,
+    "threshold_never_crossed": true,
+    "caveat": null
+  },
+  "curve": [
+    {
+      "k": 3,
+      "stability": 1.0,
+      "sd": 0.0,
+      "null": 0.9635,
+      "margin": 0.0365
+    },
+    {
+      "k": 4,
+      "stability": 0.9991,
+      "sd": 0.0007,
+      "null": 0.9718,
+      "margin": 0.0274
+    },
+    {
+      "k": 5,
+      "stability": 0.9861,
+      "sd": 0.0111,
+      "null": 0.9258,
+      "margin": 0.0603
+    },
+    {
+      "k": 6,
+      "stability": 0.9654,
+      "sd": 0.0517,
+      "null": 0.7885,
+      "margin": 0.177
+    },
+    {
+      "k": 7,
+      "stability": 0.973,
+      "sd": 0.0419,
+      "null": 0.6862,
+      "margin": 0.2868
+    },
+    {
+      "k": 8,
+      "stability": 0.8589,
+      "sd": 0.0947,
+      "null": 0.7029,
+      "margin": 0.156
+    },
+    {
+      "k": 9,
+      "stability": 0.9547,
+      "sd": 0.0756,
+      "null": 0.5882,
+      "margin": 0.3666
+    },
+    {
+      "k": 10,
+      "stability": 0.9624,
+      "sd": 0.0285,
+      "null": 0.5227,
+      "margin": 0.4397
+    },
+    {
+      "k": 11,
+      "stability": 0.9675,
+      "sd": 0.0263,
+      "null": 0.525,
+      "margin": 0.4425
+    },
+    {
+      "k": 12,
+      "stability": 0.9467,
+      "sd": 0.0363,
+      "null": 0.6555,
+      "margin": 0.2912
+    },
+    {
+      "k": 13,
+      "stability": 0.9242,
+      "sd": 0.0555,
+      "null": 0.5601,
+      "margin": 0.3641
+    },
+    {
+      "k": 14,
+      "stability": 0.8864,
+      "sd": 0.0573,
+      "null": 0.5737,
+      "margin": 0.3127
+    },
+    {
+      "k": 15,
+      "stability": 0.9025,
+      "sd": 0.042,
+      "null": 0.5967,
+      "margin": 0.3058
+    },
+    {
+      "k": 16,
+      "stability": 0.9158,
+      "sd": 0.0423,
+      "null": 0.5499,
+      "margin": 0.3659
+    },
+    {
+      "k": 17,
+      "stability": 0.8694,
+      "sd": 0.0364,
+      "null": 0.4998,
+      "margin": 0.3696
+    },
+    {
+      "k": 18,
+      "stability": 0.8572,
+      "sd": 0.0537,
+      "null": 0.47,
+      "margin": 0.3871
+    },
+    {
+      "k": 19,
+      "stability": 0.8469,
+      "sd": 0.0367,
+      "null": 0.4681,
+      "margin": 0.3788
+    },
+    {
+      "k": 20,
+      "stability": 0.8584,
+      "sd": 0.0463,
+      "null": 0.5072,
+      "margin": 0.3512
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "phase": "pilot",
+  "embed_model": "minilm",
+  "label_source": "labels_minilm_kmeans_k8_emb.npy",
+  "n_classes": 8,
+  "noise_handling": "drop",
+  "n_noise_abstracts": 0,
+  "rows": {
+    "train": 7022,
+    "val": 1544,
+    "test": 1434
+  },
+  "seed": 42,
+  "metric_note": "macro-F1 is the headline metric; accuracy is reported only to show how far the majority baseline gets without learning anything",
+  "baselines": {
+    "majority": {
+      "macro_f1": 0.0437,
+      "weighted_f1": 0.074,
+      "accuracy": 0.2118,
+      "fit_seconds": 0.1
+    },
+    "tfidf_svm": {
+      "macro_f1": 0.8834,
+      "weighted_f1": 0.8785,
+      "accuracy": 0.8789,
+      "fit_seconds": 44.5,
+      "test": {
+        "macro_f1": 0.878
+      }
+    },
+    "embed_logreg": {
+      "macro_f1": 0.9726,
+      "weighted_f1": 0.9715,
+      "accuracy": 0.9715,
+      "fit_seconds": 11.2,
+      "note": "diagnostic only, and near-tautological for KMeans labels: a KMeans partition is a Voronoi tessellation of this exact space, so it is linearly separable here by construction. The number measures how cleanly the clustering cut the space, not whether the categories can be recovered from raw text. Only the tf-idf and transformer figures speak to that."
+    }
+  }
+}

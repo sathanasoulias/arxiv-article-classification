@@ -46,6 +46,7 @@ UMAP_DIMS = 50            # for clustering; 2D is produced separately for plots
 UMAP_NEIGHBOURS = 15
 SILHOUETTE_SAMPLE = 10_000   # silhouette is O(n^2); sample instead
 DBCV_SAMPLE = 5_000
+HDBSCAN_MAX_N = 50_000       # above this HDBSCAN exhausts memory; see run_hdbscan
 
 
 def reduce_dims(vectors, phase, model, dims, force):
@@ -131,8 +132,21 @@ def run_kmeans(X, archives, groups):
     return rows
 
 
-def run_hdbscan(X, archives, groups):
+def run_hdbscan(X, archives, groups, max_n=HDBSCAN_MAX_N):
+    """HDBSCAN sweep, on a subsample when the corpus is large.
+
+    HDBSCAN builds a mutual-reachability structure whose memory grows far faster than
+    linearly. On the full 150,000-paper sample it reached 16 GB of paged memory on a
+    32 GB machine and made no progress, so the sweep runs on a seeded subsample. KMeans
+    has no such problem and still runs on everything.
+    """
     from hdbscan.validity import validity_index
+
+    n_full = len(X)
+    if len(X) > max_n:
+        idx = np.sort(np.random.default_rng(SEED).choice(len(X), max_n, replace=False))
+        X, archives, groups = X[idx], archives[idx], groups[idx]
+        print(f"  (subsampled to {max_n:,} of {n_full:,} papers — see docstring)")
 
     rows = []
     # Scaled to the dataset: a cluster must be at least this many papers to count.
@@ -192,18 +206,25 @@ def main():
           f"{vectors.shape[1]}d embeddings")
     X = reduce_dims(vectors, args.phase, args.model, UMAP_DIMS, args.force)
 
+    out = REPORTS / f"clustering_{args.phase}_{args.model}.csv"
+
+    def flush(rows):
+        """Write after each sweep, so an interrupted run keeps what it finished."""
+        result = pd.DataFrame(rows)
+        result.insert(0, "phase", args.phase)
+        result.insert(1, "model", args.model)
+        result.insert(2, "umap_dims", UMAP_DIMS)
+        result.to_csv(out, index=False)
+        return result
+
     print(f"\nKMeans sweep k={K_RANGE.start}..{K_RANGE.stop - 1}")
     rows = run_kmeans(X, archives, groups)
+    flush(rows)
+    print(f"  KMeans results saved to {out.name}")
 
     print("\nHDBSCAN sweep")
     rows += run_hdbscan(X, archives, groups)
-
-    out = REPORTS / f"clustering_{args.phase}_{args.model}.csv"
-    result = pd.DataFrame(rows)
-    result.insert(0, "phase", args.phase)
-    result.insert(1, "model", args.model)
-    result.insert(2, "umap_dims", UMAP_DIMS)
-    result.to_csv(out, index=False)
+    result = flush(rows)
     print(f"\nWrote {out}")
 
     best = result[result.algorithm == "kmeans"].nlargest(3, "silhouette")
