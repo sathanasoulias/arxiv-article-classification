@@ -678,11 +678,166 @@ repository under a fixed seed, so the notebook cannot re-derive the labels diffe
 
 ## 5. Evaluation
 
-_Pending._
+The brief asks for evaluation on a validation set with appropriate metrics. There are two
+models here and they are not evaluated the same way, so this section is in three parts:
+the taxonomy, the classifier, and why their scores must never be traded against each
+other.
+
+### 5.1 Evaluating the taxonomy
+
+Four questions, four instruments. None of them uses a held-out split, because a clustering
+has no labels to hold out — the equivalent of held-out evaluation is resampling.
+
+| Question | Instrument | Result |
+|---|---|---|
+| Is it reproducible? | ARI between independent subsamples | **0.958 ± 0.012** at k=8 |
+| Is it better than nothing? | the same, on structureless data | null **0.007** |
+| Is it balanced? | share held by the largest category | **19.2%** |
+| Does it cover the data? | fraction of papers assigned | **100%** |
+| Is it readable? | c-TF-IDF terms, centroid papers | §4.4 |
+
+The reproducibility figure is the one that matters. At k=8 two independent 80% subsamples
+of the corpus agree at ARI 0.958, against 0.007 for uniform points on the sphere. The
+taxonomy is a property of the data, not of the run.
+
+**What we do not claim.** Internal geometric scores were not used to select anything, for
+a reason this project demonstrated twice:
+
+- **Silhouette** peaks at k=4 on the 150k run, where one cluster holds 45.6% of the corpus.
+- **DBCV** peaks at 0.716 on an HDBSCAN partition with **two** clusters, one holding 82%.
+
+Both internal measures prefer a small number of fat, well-separated blobs. That is a
+reasonable thing for a geometric score to reward and a useless answer to the question the
+brief asks. They are reported in `reports/clustering_main_minilm.csv` and they decide
+nothing.
+
+### 5.2 Evaluating the classifier
+
+Standard supervised evaluation: train on the training split, select on validation, and
+read the test split once at the end.
+
+**Macro-F1 is the headline metric, not accuracy.** Each category is weighted equally
+regardless of size, so a model cannot do well by serving the big categories and ignoring
+the small ones. The majority-class baseline makes the case concretely — on the earlier
+7-category HDBSCAN taxonomy it reached **47.8% accuracy while learning nothing at all**,
+because one cluster held 43% of the corpus. Its macro-F1 was 0.092.
+
+Baselines, in increasing order of what they know:
+
+| Model | What it uses | Validation macro-F1 |
+|---|---|---|
+| Majority class | nothing | *(see `reports/baselines_main_*.json`)* |
+| TF-IDF + LinearSVC | word 1–2 grams, char 3–5 grams | *(same)* |
+| Frozen embeddings + logistic regression | the clustering's own space | *(same, diagnostic only)* |
+| **Fine-tuned `bert-base-uncased`** | the abstract text | **§6** |
+
+The third baseline is **diagnostic and near-tautological**, and is reported only so that
+it cannot be mistaken for a result. A KMeans partition is a Voronoi tessellation of the
+embedding space, so a linear model in that same space can recover it almost perfectly by
+construction. It measures how cleanly the clustering cut the space, not whether the
+categories can be recovered from raw text. Only the TF-IDF and transformer rows speak to
+the actual task.
+
+On the 10,000-paper pilot the TF-IDF baseline reaches **0.883 macro-F1** across the eight
+categories, with per-category F1 between 0.82 and 0.94. That is the number the transformer
+has to beat, and it is a demanding one: it says the discovered categories are already
+largely separable by vocabulary alone, which is itself evidence that they are coherent.
+
+### 5.3 Why the two scores are not interchangeable
+
+This is the methodological rule the whole project is organised around, and it is worth
+stating in full because it is easy to violate by accident.
+
+**A classifier's macro-F1 is not evidence that a taxonomy is good.** Suppose classifier A
+predicts 8 discovered categories at 0.92 macro-F1 and classifier B predicts arXiv's 8
+groups at 0.85. It does not follow that the discovered categories are better. Three
+independent reasons:
+
+1. **Circularity.** The discovered labels were produced from the embeddings, so a model
+   reading those same embeddings is partly marking its own homework. arXiv's labels were
+   assigned by authors and carry information the model has never seen.
+2. **Granularity.** Fewer, coarser categories are easier to predict. Taken to its limit,
+   a single-category taxonomy scores a perfect macro-F1 and conveys nothing. Any metric
+   that rewards this cannot be used to choose a taxonomy.
+3. **Asymmetric label noise.** Nearly half of all arXiv papers carry more than one
+   subject label (§2), so a "wrong" prediction against arXiv is often not wrong. Cluster
+   labels have no such ambiguity by construction. The two tasks have different achievable
+   ceilings.
+
+So the rule observed throughout: **classifier metrics are comparable only between runs
+that share one label set.** Every macro-F1 in §6 is computed against the same eight
+categories, which is what makes the comparisons there meaningful. The taxonomy itself was
+judged in §5.1, by instruments that never saw a classifier.
+
+This also rules out a comparison a reader might expect to find here: our macro-F1 against
+Arcan's reported 0.923. Their classifier predicts their clustering's labels on their
+filtered subset, at a cluster count chosen by maximising agreement with the true labels.
+The two numbers are not measuring the same thing, and placing them side by side would be
+exactly the error described above.
 
 ## 6. Hyperparameter tuning and model selection
 
-_Pending._
+### 6.1 A staged search, not a grid
+
+The obvious search is a grid over learning rate × batch size × encoder × seed. That is
+4 × 3 × 3 × 3 = **108 fine-tuning runs**, and almost all of it is wasted: the factors are
+close to independent, so most of the grid re-measures what the first few cells already
+established.
+
+Instead each factor is resolved in turn and the winner carried forward — **13 runs**
+instead of 108, for the same decisions:
+
+| Stage | Varies | Values | Runs |
+|---|---|---|---|
+| 1 | learning rate | 1e-5, 2e-5, 3e-5, 5e-5 | 4 |
+| 2 | batch size | 8, 16, 32 | 2 (16 already measured) |
+| 3 | encoder | bert-base, DistilBERT, SciBERT | 2 (bert-base already measured) |
+| 4 | seeds | 42, 1337, 2024 | 2 (42 already measured) |
+
+Learning rate goes first because it dominates fine-tuning outcomes. SciBERT is included
+despite Arcan finding its *embeddings* were the worst of four for clustering — embedding
+quality and fine-tuning quality are different properties, and the comparison costs one
+run.
+
+Stage 4 is not tuning. It re-runs the winning configuration under three seeds so the
+headline number carries a spread instead of implying a precision it does not have. Arcan
+reported no error bars at all; a single fine-tuning run is not a measurement.
+
+### 6.2 Selection discipline
+
+**Selection uses validation macro-F1 only.** The test split is scored once per run and
+reported, never compared during the search. Choosing a configuration by its test score
+would turn the test set into a second validation set and the reported number into an
+overestimate.
+
+Within a run, the best epoch is likewise chosen on validation macro-F1, with early
+stopping after two epochs without improvement.
+
+Every run writes a complete record to `reports/classifier_<tag>.json` — hyperparameters,
+per-category precision/recall/F1, the confusion matrix, wall-clock time, and the library
+versions — so any row of the results table can be traced to the exact command that
+produced it.
+
+### 6.3 Results
+
+*To be completed from the GPU run. `src/tune.py --dry-run` prints the exact 13 commands;
+`notebooks/colab_train.ipynb` runs the same search on a T4 and writes
+`reports/tuning_main_kmeans_k8_emb.csv`.*
+
+### 6.4 Why this runs on a GPU
+
+Fine-tuning `bert-base-uncased` over 105,000 abstracts at 256 tokens takes roughly an
+hour per epoch on a T4 and far longer on CPU — a single measured CPU run on this machine
+projected to about four hours for the 7,000-paper pilot alone. Thirteen runs at full
+scale is not a CPU workload.
+
+The split is deliberate. Everything that defines the experiment — sampling, splitting,
+embedding, clustering, and the choice of eight categories — runs here, seeded and
+committed. `src/export_training_set.py` then writes one self-contained file holding the
+abstracts, the fixed split and the discovered labels, with a manifest recording its
+sha256, class counts and split sizes. The notebook consumes that file and **cannot
+re-derive the labels differently**, which is what makes its numbers comparable to
+everything else in this report.
 
 ## 7. Conclusions
 

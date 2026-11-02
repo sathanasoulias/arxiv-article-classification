@@ -141,7 +141,13 @@ def hdbscan_fit(mcs):
     return fit
 
 
-def sweep(X, X_null, configs, reps):
+def sweep(X, X_null, configs, reps, on_row=None):
+    """Score every configuration. `on_row` is called after each one.
+
+    A full sweep is hours of clustering, so each row is handed back as soon as it
+    exists and the caller persists it. An interrupted run then keeps everything it
+    finished instead of losing the lot.
+    """
     rows = []
     for algorithm, param, value, fit in configs:
         obs, obs_sd, n_obs = stability(X, fit, reps, SEED)
@@ -160,6 +166,8 @@ def sweep(X, X_null, configs, reps):
         })
         print(f"  {algorithm:8} {param}={value:<5} stability={obs:.4f} "
               f"(+/-{obs_sd:.4f})  null={null:.4f}  margin={margin:+.4f}", flush=True)
+        if on_row:
+            on_row(rows)
     return rows
 
 
@@ -329,14 +337,22 @@ def main():
             print("  (HDBSCAN skipped: it is only meaningful after UMAP reduction)")
 
     print(f"\nKMeans k={K_RANGE.start}..{K_RANGE.stop - 1}")
-    rows = sweep(X, X_null, configs, args.reps)
+    def tabulate(rows):
+        result = pd.DataFrame(rows)
+        for i, (col, val) in enumerate([("phase", args.phase), ("model", args.model),
+                                        ("space", args.space), ("n_papers", n_used),
+                                        ("reps", args.reps)]):
+            result.insert(i, col, val)
+        return result
 
-    result = pd.DataFrame(rows)
-    for i, (col, val) in enumerate([("phase", args.phase), ("model", args.model),
-                                    ("space", args.space), ("n_papers", n_used),
-                                    ("reps", args.reps)]):
-        result.insert(i, col, val)
-    result.to_csv(REPORTS / f"{stem}.csv", index=False)
+    # Persist after every configuration: the sweep takes hours and an interrupted
+    # run should keep what it finished. --rescore then works on the partial sweep.
+    csv_path = REPORTS / f"{stem}.csv"
+    rows = sweep(X, X_null, configs, args.reps,
+                 on_row=lambda rs: tabulate(rs).to_csv(csv_path, index=False))
+
+    result = tabulate(rows)
+    result.to_csv(csv_path, index=False)
 
     report(result, stem, {
         "phase": args.phase,
