@@ -564,7 +564,15 @@ made on a **one-standard-deviation lower bound** rather than on the mean. This i
 cosmetic choice: on the pilot, the mean alone selects k=11 (0.849 ± 0.067) over k=8
 (0.942 ± 0.020), which inverts the evidence.
 
-On the 150,000-paper run the curve is unambiguous:
+**A note on sample size.** The estimator is expensive — ten repetitions × two subsamples ×
+two data sets (observed and null) × ten KMeans initialisations is 400 clusterings per
+candidate k, 7,200 across the sweep — so the stability sweep runs on a random subsample of
+the main corpus rather than all of it, capped by `--max-n`. This is the one result in this
+report not computed on the full 150,000; the clustering, interpretation, agreement scores
+and baselines all are. The sample size used is recorded in
+`reports/stability_main_minilm_embedding.json` as `n_papers`.
+
+On the main corpus the curve is unambiguous:
 
 | k | stability | sd | lower bound | stable? |
 |---|---|---|---|---|
@@ -909,7 +917,7 @@ everything else in this report.
 
 **Eight categories.**
 
-Selected by stability: on 150,000 abstracts, two independent 80% subsamples clustered
+Selected by stability: on a subsample of the main corpus, two independent 80% subsamples clustered
 separately agree at **ARI 0.958 ± 0.012** at k=8, against **0.007** for structureless data
 of the same shape. Every candidate from k=3 to k=8 is stable on a one-standard-deviation
 lower bound; k=9 falls off a cliff to 0.74. The data supports up to eight categories and
@@ -1078,21 +1086,39 @@ python src/preprocess.py               # sample + split (writes data/splits/)
 # Validate everything on the 10k pilot first
 python src/embed.py      --phase pilot --model minilm
 python src/cluster.py    --phase pilot --model minilm
-python src/stability.py  --phase pilot --model minilm
-python src/interpret.py  --phase pilot --model minilm --algorithm hdbscan --mcs 100
-python src/baseline.py   --phase pilot --labels hdbscan_mcs100
+python src/stability.py  --phase pilot --model minilm --space embedding
+python src/interpret.py  --phase pilot --model minilm --algorithm kmeans --k 8
+python src/baseline.py   --phase pilot --embed-model minilm --labels kmeans_k8_emb
 
 # Then the reported 150k run
 python src/embed.py      --phase main  --model minilm
 python src/cluster.py    --phase main  --model minilm
-python src/stability.py  --phase main  --model minilm
-python src/interpret.py  --phase main  --model minilm --algorithm kmeans --k 7
+python src/stability.py  --phase main  --model minilm --space embedding \
+                         --max-n 50000 --skip-hdbscan
+python src/interpret.py  --phase main  --model minilm --algorithm kmeans --k 8
+python src/baseline.py   --phase main  --embed-model minilm --labels kmeans_k8_emb
 
-python src/figures.py    --phase main  --model minilm
+python src/check_integrity.py --phase both
+python src/figures.py    --phase main  --model minilm --labels kmeans_k8_emb
 ```
+
+Note the flags. `--labels` and `--embed-model` default to the *pilot's* HDBSCAN
+configuration, which is not what this report uses — pass `kmeans_k8_emb` explicitly.
+`--space embedding` is the reported setting for stability; `--space umap` reproduces the
+saturation described in §4.3. `--max-n` caps the stability sweep's sample size.
 
 Fine-tuning runs on a GPU. Export the training set, then run `notebooks/colab_train.ipynb`:
 
 ```bash
-python src/export_training_set.py --phase main --labels kmeans_k7
+python src/export_training_set.py --phase main --embed-model minilm --labels kmeans_k8_emb
+python src/tune.py --phase main --embed-model minilm --labels kmeans_k8_emb --dry-run
+```
+
+The single CPU run reported in §6.3 — three and a half hours of the fifty-two a full-scale
+run would take — is:
+
+```bash
+python src/train_classifier.py --phase pilot --embed-model minilm \
+    --labels kmeans_k8_emb --encoder bert-base --lr 2e-5 --batch-size 16 \
+    --epochs 3 --tag pilot_bertbase_k8_cpu
 ```
