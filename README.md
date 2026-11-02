@@ -511,15 +511,16 @@ This is the question the brief actually asks, so it gets its own instrument.
 
 ![k sweep](reports/figures/clustering_k_sweep_main.png)
 
-Silhouette's optimum is **k=3** (0.586) — a solution in which a single cluster holds
-**44.3% of the entire corpus**. Silhouette rewards a small number of well-separated blobs,
-which is exactly the wrong bias when the question is how finely the data divides. It is
-reported, and it does not decide anything.
+On the 150,000-paper run, silhouette's optimum is **k=4** (0.552) — a solution in which a
+single cluster holds **45.6% of the entire corpus**. Silhouette rewards a small number of
+well-separated blobs, which is exactly the wrong bias when the question is how finely the
+data divides. It is reported, and it decides nothing. (The pilot behaves the same way,
+peaking at k=3 with 44.3% in one cluster.)
 
 The two reference levels also disagree, as predicted in H4: ARI against the 20 archives
-peaks at k=6, AMI against the 8 groups peaks at k=4. Coarser reference, coarser answer.
-Neither is used for selection — they appear here only to show that no single external
-ruler could have settled this either.
+peaks at k=4, while AMI against the 8 groups peaks at k=3. Coarser reference, coarser
+answer. Neither is used for selection — they appear here only to show that no single
+external ruler could have settled this either.
 
 #### Stability, and a null that actually works
 
@@ -545,9 +546,11 @@ across the whole sweep, which is what a null should look like.
 #### And a space that actually discriminates
 
 Stability must also be measured somewhere sensible. Inside the UMAP reduction it
-saturates: 1.000 at k=3, declining monotonically, which would simply reproduce
-silhouette's degenerate answer. `min_dist=0.0` manufactures hard-separated clumps, so what
-is being measured there is UMAP's determinism rather than structure in the data.
+saturates: it reaches **1.000 ± 0.000** at k=3, and **17 of the 18** candidate values
+clear the threshold, so the rule simply returns whatever the sweep's upper limit happens
+to be. `min_dist=0.0` manufactures hard-separated clumps, so what is being measured there
+is UMAP's determinism rather than structure in the data. Measured in the embedding space
+the same sweep passes only 4 of 18.
 
 The number of categories is therefore decided in the **original embedding space**. UMAP is
 used where it is needed — density clustering — and nowhere else.
@@ -671,8 +674,9 @@ of the eight.
 Imbalance is handled with **weights in the loss, not resampling**, so every abstract is
 seen exactly once per epoch and the sampling distribution fixed in §3 survives intact.
 
-Fine-tuning runs on a GPU: a single CPU run takes roughly 1.5 hours and the search in §6
-needs thirteen of them. `src/export_training_set.py` writes one self-contained file and
+Fine-tuning runs on a GPU. Measured throughput on this machine puts one CPU run at
+about 3.5 hours on the 10,000-paper pilot and roughly 52 hours at full scale; the search
+in §6 needs thirteen of them. `src/export_training_set.py` writes one self-contained file and
 `notebooks/colab_train.ipynb` consumes it on a T4. Everything upstream stays in this
 repository under a fixed seed, so the notebook cannot re-derive the labels differently.
 
@@ -718,18 +722,23 @@ read the test split once at the end.
 
 **Macro-F1 is the headline metric, not accuracy.** Each category is weighted equally
 regardless of size, so a model cannot do well by serving the big categories and ignoring
-the small ones. The majority-class baseline makes the case concretely — on the earlier
+the small ones. The majority-class baseline makes the case concretely: on the earlier
 7-category HDBSCAN taxonomy it reached **47.8% accuracy while learning nothing at all**,
-because one cluster held 43% of the corpus. Its macro-F1 was 0.092.
+because one cluster held 43% of the corpus — at a macro-F1 of 0.092. The reported
+8-category taxonomy is balanced enough that the same baseline gets only 19.3% accuracy,
+which is itself a point in the taxonomy's favour.
 
-Baselines, in increasing order of what they know:
+Baselines on the 150,000-paper run, in increasing order of what they know:
 
-| Model | What it uses | Validation macro-F1 |
-|---|---|---|
-| Majority class | nothing | *(see `reports/baselines_main_*.json`)* |
-| TF-IDF + LinearSVC | word 1–2 grams, char 3–5 grams | *(same)* |
-| Frozen embeddings + logistic regression | the clustering's own space | *(same, diagnostic only)* |
-| **Fine-tuned `bert-base-uncased`** | the abstract text | **§6** |
+| Model | What it uses | Validation macro-F1 | Accuracy |
+|---|---|---|---|
+| Majority class | nothing | 0.0404 | 0.1929 |
+| **TF-IDF + LinearSVC** | word 1–2 grams, char 3–5 grams | **0.9005** | 0.8971 |
+| Frozen embeddings + logistic regression | the clustering's own space | *0.9808* | *0.9805* |
+| Fine-tuned `bert-base-uncased` | the abstract text | **§6.3** | |
+
+The TF-IDF baseline reaches **0.9005 macro-F1** on validation and 0.897 on test, with
+per-category F1 between 0.86 and 0.94 — no weak category. It takes six minutes to fit.
 
 The third baseline is **diagnostic and near-tautological**, and is reported only so that
 it cannot be mistaken for a result. A KMeans partition is a Voronoi tessellation of the
@@ -738,10 +747,10 @@ construction. It measures how cleanly the clustering cut the space, not whether 
 categories can be recovered from raw text. Only the TF-IDF and transformer rows speak to
 the actual task.
 
-On the 10,000-paper pilot the TF-IDF baseline reaches **0.883 macro-F1** across the eight
-categories, with per-category F1 between 0.82 and 0.94. That is the number the transformer
-has to beat, and it is a demanding one: it says the discovered categories are already
-largely separable by vocabulary alone, which is itself evidence that they are coherent.
+**0.9005 is the number the transformer has to beat, and it is demanding.** It says the
+eight discovered categories are already largely separable by vocabulary alone — which is
+itself evidence that they are coherent, and sets a high bar for what fine-tuning can add.
+The pilot shows the same picture at smaller scale (0.883).
 
 ### 5.3 Why the two scores are not interchangeable
 
@@ -826,10 +835,10 @@ produced it.
 
 ### 6.4 Why this runs on a GPU
 
-Fine-tuning `bert-base-uncased` over 105,000 abstracts at 256 tokens takes roughly an
-hour per epoch on a T4 and far longer on CPU — a single measured CPU run on this machine
-projected to about four hours for the 7,000-paper pilot alone. Thirteen runs at full
-scale is not a CPU workload.
+Extrapolating from a measured CPU run on this machine, one fine-tuning run over the
+105,000 training abstracts at 256 tokens would take about **52 hours**, and the
+thirteen-run search roughly **four weeks**. The same search on a T4 is a couple of
+hours. This is not a CPU workload.
 
 The split is deliberate. Everything that defines the experiment — sampling, splitting,
 embedding, clustering, and the choice of eight categories — runs here, seeded and
