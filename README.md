@@ -555,37 +555,53 @@ the same sweep passes only 4 of 18.
 The number of categories is therefore decided in the **original embedding space**. UMAP is
 used where it is needed — density clustering — and nowhere else.
 
-![Stability](reports/figures/stability_pilot_embedding.png)
+![Stability](reports/figures/stability_main_embedding.png)
 
 #### The selection rule
 
 Ben-Hur et al. require scores that are both high *and* concentrated, so the decision is
-made on a one-standard-deviation lower bound rather than on the mean. This matters: on the
-mean alone the rule selects k=11 (0.849 ± 0.067) over k=8 (0.942 ± 0.020), which inverts
-the evidence.
+made on a **one-standard-deviation lower bound** rather than on the mean. This is not a
+cosmetic choice: on the pilot, the mean alone selects k=11 (0.849 ± 0.067) over k=8
+(0.942 ± 0.020), which inverts the evidence.
 
-| k | stability | sd | lower bound | clears 0.80? |
+On the 150,000-paper run the curve is unambiguous:
+
+| k | stability | sd | lower bound | stable? |
 |---|---|---|---|---|
-| 3 | 0.9669 | 0.0217 | 0.945 | yes |
-| 4 | 0.9634 | 0.0302 | 0.933 | yes |
-| 5 | 0.9726 | 0.0051 | **0.968** | yes (global peak) |
-| 6 | 0.8525 | 0.1167 | 0.736 | no |
-| 7 | 0.8434 | 0.1294 | 0.714 | no |
-| **8** | **0.9421** | **0.0203** | **0.922** | **yes — selected** |
-| 9 | 0.8789 | 0.0947 | 0.784 | no |
-| 10–20 | ≤ 0.879 | — | ≤ 0.782 | no |
+| 3 | 0.9808 | 0.0107 | 0.9701 | yes |
+| 4 | 0.9793 | 0.0074 | 0.9719 | yes |
+| 5 | 0.9715 | 0.0102 | 0.9613 | yes |
+| 6 | 0.9723 | 0.0039 | 0.9684 | yes |
+| 7 | 0.9558 | 0.0145 | 0.9413 | yes |
+| **8** | **0.9576** | **0.0121** | **0.9455** | **yes — selected** |
+| 9 | 0.8291 | 0.0874 | 0.7417 | **no** |
+| 10 | 0.7915 | 0.1371 | 0.6544 | no |
+| 11–20 | 0.737–0.823 | — | 0.653–0.768 | no |
 
-Four values clear the bar: **k ∈ {3, 4, 5, 8}**. Among reproducible taxonomies the more
-informative one is preferred — a two-way split is perfectly stable and useless — so the
-answer is the largest of them.
+Six values clear the bar, and they form a **contiguous block from k=3 to k=8** followed by
+a cliff: the lower bound drops from 0.946 to 0.742 in a single step, and never recovers
+across the remaining eleven values. The null sits at 0.005–0.008 throughout.
 
-The shape of the curve supports this independently. k=6 and k=7 are *unstable* (sd 0.117
-and 0.129), and k=8 is a sharp local maximum with the second-lowest variance in the sweep.
-That is the signature of a real boundary: the algorithm is being forced to invent a split
-at 6 and 7, and finds a genuine one at 8.
+That is what a well-behaved stability curve looks like. Read plainly: **the data supports
+any number of categories up to eight, and none above it.** Among reproducible taxonomies
+the more informative one is preferred — a two-way split is perfectly stable and useless —
+so the answer is the largest of them.
 
-> **Answer: 8 categories.** Independent corroboration: HDBSCAN, a different algorithm in a
-> different space with no k supplied, settles on **7**.
+> **Answer: 8 categories.** ARI 0.958 ± 0.012 between independent subsamples, against
+> 0.007 for structureless data of the same shape.
+
+**Two independent checks agree.** The 10,000-paper pilot, drawn fifteen times smaller and
+clustered separately, also selects **k=8**. HDBSCAN — a different algorithm, in a
+different space, given no k at all — settles on **7** on that pilot.
+
+**One thing the pilot got wrong.** On the pilot, k=6 and k=7 looked *unstable* (sd 0.117
+and 0.129), making k=8 appear as an isolated island of reproducibility between noisy
+neighbours. That pattern does not replicate: at 150,000 papers k=6 and k=7 are among the
+most stable values in the sweep (sd 0.004 and 0.015). The ragged pilot curve was a
+small-sample artefact, and the real structure is the plateau-then-cliff above. The
+selected number is the same either way, but the reasoning that supports it is only sound
+at scale — which is why the pilot is used to validate the pipeline and the 150,000-paper
+run is used to report results.
 
 ### 4.4 What the eight categories are
 
@@ -896,7 +912,7 @@ split as an error. Agreement scores measure similarity to arXiv, not quality.
 
 | | Prediction | Outcome |
 |---|---|---|
-| **H1** | Silhouette and stability will disagree; prefer stability | **Confirmed.** Silhouette peaks at k=4 where one cluster holds 45.6% of the corpus. Stability selects 8. |
+| **H1** | Silhouette and stability will disagree; prefer stability | **Confirmed.** Silhouette peaks at k=4, where one cluster holds 45.6% of the corpus; DBCV peaks on a two-cluster partition holding 82%. Stability selects 8. |
 | **H2** | HDBSCAN after UMAP will not show Arcan's collapse | **Partly confirmed.** The noise collapse is fixed (74% → ≤17%) and ARI improves (0.03 → 0.61). But the cluster count is not stable across corpus size, so HDBSCAN cannot decide the number. |
 | **H3** | The categories will not line up with arXiv's 8 groups | **Confirmed**, and more strongly than expected — see §7.2. |
 | **H4** | The 8 groups will favour fewer categories than the 20 archives | **Confirmed on the pilot** (AMI peaks at k=4 for groups, ARI at k=6 for archives). On the 150k run both peak early (k=3 and k=4), so the gap narrows at scale. |
@@ -920,11 +936,19 @@ whatever the sweep's upper limit happens to be. `min_dist=0` manufactures separa
 so what is measured there is UMAP's determinism. The number is decided in the original
 embedding space, where 4 of 18 clear.
 
-**Over-reading the pilot.** The pilot's seven-cluster HDBSCAN result was initially read as
-evidence that the UMAP fix turns HDBSCAN from the worst algorithm into the best. The 150k
-run does not support that: at the same `min_cluster_size` fraction, the pilot's 12 clusters
-become 3, and its 7 become 2. The noise fix is real and replicates; the cluster count does
-not.
+**Over-reading the pilot, twice.** The pilot's seven-cluster HDBSCAN result was initially
+read as evidence that the UMAP fix turns HDBSCAN from the worst algorithm into the best.
+The 150k run does not support that: at the same `min_cluster_size` fraction, the pilot's 12
+clusters become 3, and its 7 become 2. The noise fix is real and replicates; the cluster
+count does not.
+
+The pilot's stability curve misled in the same way. On 10,000 papers, k=6 and k=7 looked
+unstable (sd 0.117 and 0.129), which suggested a tidy story — that the algorithm is forced
+to invent a boundary at 6 and 7 and finds a real one at 8. At 150,000 papers those two are
+among the *most* stable values in the sweep (sd 0.004 and 0.015), and the real shape is a
+plateau from k=3 to k=8 followed by a cliff. The selected number survives; the explanation
+for it did not, and a pilot-only report would have argued for the right answer from the
+wrong evidence.
 
 ### 7.5 Limitations
 

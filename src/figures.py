@@ -362,8 +362,12 @@ def fig_stability(phase, model, space="embedding"):
     ax.plot(curve.k, curve["null"], color=INK_MUTED, linewidth=1.8,
             linestyle=(0, (5, 3)), zorder=3)
 
-    ax.text(curve.k.iloc[-1] + 0.25, curve.stability.iloc[-1],
-            "observed\n(±1 sd)", color=INK_2, fontsize=9, va="center")
+    # Nudge clear of the threshold rule, which can sit at the same height.
+    last_y = float(curve.stability.iloc[-1])
+    offset = 14 if abs(last_y - sel["threshold"]) < 0.06 else 0
+    ax.annotate("observed\n(±1 sd)", xy=(curve.k.iloc[-1] + 0.25, last_y),
+                xytext=(4, offset), textcoords="offset points",
+                color=INK_2, fontsize=9, va="center")
     ax.text(curve.k.iloc[-1] + 0.25, curve["null"].iloc[-1], "null",
             color=INK_2, fontsize=9, va="center")
 
