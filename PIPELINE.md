@@ -204,9 +204,21 @@ arXiv reference levels.
 `0.5·ARI + 0.5·NMI` *against arXiv's true labels* — and conceded it "may inflate
 reported ARI/NMI". That is circular when the brief states the number of categories is
 unknown: it uses the answer to find the answer. In this pipeline **ARI and AMI are
-computed and reported but never used to choose anything.** Selection uses internal
-measures plus the stability analysis in Phase 5; the external scores are after-the-fact
-validation.
+computed and reported but never used to choose anything.** They are after-the-fact
+validation and, in Phase 6, the device for *interpreting* what each cluster is.
+
+To be precise about what does the choosing: **nothing in this phase selects k.**
+`select_k()` in Phase 5 reads two columns — the stability mean and its standard
+deviation — and no others. The internal measures below are not a weaker selection
+criterion that stability supplements; they are reported because they are the textbook
+approach and they *fail here*, which is what makes Phase 5 necessary rather than
+exotic.
+
+A note on what the firewall actually forbids. It is not "never look at arXiv's labels"
+— the dataset ships with them and ignoring them entirely would make the taxonomy
+uninterpretable and unvalidatable. It is that **no label-derived quantity may enter the
+selection path**. That is a property of the code, and it is checkable: the selection
+function's inputs are the stability curve alone.
 
 AMI is reported alongside ARI because raw NMI rises mechanically with cluster count and
 would reward splitting. Both reference levels are reported because neither is correct

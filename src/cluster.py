@@ -9,10 +9,14 @@ against arXiv's true labels. That is circular when the brief states the number o
 categories is unknown: it uses the answer to find the answer, and the paper itself
 concedes it "may inflate reported ARI/NMI".
 
-Here, ARI and AMI are computed and reported but are NEVER used to choose k. Selection
-uses internal measures only (silhouette for KMeans, DBCV for HDBSCAN) plus the
-stability analysis in stability.py. The external scores are independent validation,
-calculated after the fact.
+Here, ARI and AMI are computed and reported but are NEVER used to choose k. Nor are
+the internal measures: silhouette and DBCV are scored here and both turn out to peak
+on degenerate partitions, so k is chosen in stability.py, whose selection function
+reads the stability curve and nothing else. Everything this module computes is
+diagnostic or after-the-fact validation.
+
+The firewall is not "never look at arXiv's labels" — they are needed to interpret and
+validate the clusters. It is that no label-derived quantity enters the selection path.
 
 AMI is reported alongside ARI because raw NMI rises with the number of clusters and
 would unfairly reward splitting the data further.
@@ -227,8 +231,12 @@ def main():
     result = flush(rows)
     print(f"\nWrote {out}")
 
+    # Printed as a diagnostic, not as a recommendation. Nothing here selects k:
+    # stability.py does that, from the stability curve alone. Read this table
+    # alongside largest_cluster_pct — silhouette's optimum on this data is a
+    # degenerate partition, which is the finding, not a usable answer.
     best = result[result.algorithm == "kmeans"].nlargest(3, "silhouette")
-    print("\nTop 3 by silhouette (selection metric, NOT ARI):")
+    print("\nTop 3 by silhouette (diagnostic only — k is chosen in stability.py):")
     print(best[["param", "silhouette", "ari_archive", "ami_group",
                 "largest_cluster_pct"]].to_string(index=False))
 
