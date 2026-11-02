@@ -1,15 +1,22 @@
+# Data access
+kagglehub>=0.3         # src/download_data.py
+
 # Core
 pandas>=2.0
+pyarrow>=14.0          # pandas parquet engine for the exported training set
 tabulate>=0.9          # pandas .to_markdown() for the generated reports
 numpy>=1.24
-scikit-learn>=1.3
+scikit-learn>=1.3      # sklearn.cluster.HDBSCAN landed in 1.3
 
 # NLP / transformers
-transformers>=4.40
+# transformers 5 is a floor, not a preference: train_classifier.py uses
+# eval_strategy, processing_class and compute_loss_func, none of which exist
+# in 4.40. accelerate 1.1 is the minimum Trainer will import against.
+transformers>=5.0
 datasets>=2.18
 sentence-transformers>=2.7
 torch>=2.2
-accelerate>=0.29
+accelerate>=1.1
 
 # Clustering / dimensionality reduction
 umap-learn>=0.5
@@ -26,3 +33,8 @@ ipykernel>=6.29
 
 # Progress bars
 tqdm>=4.66
+
+# Versions these results were produced with (Python 3.13.9):
+#   transformers 5.22.1   torch 2.15.0+cpu   scikit-learn 1.9.1
+#   numpy 2.5.4           sentence-transformers 6.2.0
+#   umap-learn 0.5.12     hdbscan 0.8.44     accelerate 1.15.0
