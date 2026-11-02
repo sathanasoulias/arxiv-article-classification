@@ -841,7 +841,108 @@ everything else in this report.
 
 ## 7. Conclusions
 
-_Pending._
+### 7.1 The answer
+
+**Eight categories.**
+
+Selected by stability: on 150,000 abstracts, two independent 80% subsamples clustered
+separately agree at **ARI 0.958 ± 0.012** at k=8, against **0.007** for structureless data
+of the same shape. Every candidate from k=3 to k=8 is stable on a one-standard-deviation
+lower bound; k=9 falls off a cliff to 0.74. The data supports up to eight categories and
+no more, so eight is the most granular taxonomy the evidence will carry.
+
+No arXiv label was consulted in reaching that number. Two independent checks agree with
+it: the 10,000-paper pilot, clustered separately, also selects **k=8**, and HDBSCAN — a
+different algorithm, in a different space, given no k at all — settles on **7** on that
+pilot.
+
+The eight categories are listed in §4.4. Every paper is assigned, the largest holds 19.2%
+of the corpus, and each is interpretable from its distinguishing vocabulary.
+
+### 7.2 What we found that we did not expect
+
+**The discovered taxonomy is structurally the inverse of arXiv's.** It splits computer
+science into three categories and mathematics into two, while covering all thirteen
+physics archives with three. arXiv does the reverse: one archive for all of computer
+science, one top-level group for all of physics. Neither is wrong — arXiv's taxonomy
+reflects how research communities organised themselves historically, and the discovered
+one reflects what abstracts actually say.
+
+**One discovered category has no arXiv equivalent.** Category 2 — 11.9% of the corpus,
+94.6% computer science, top terms `llms`, `language`, `reasoning` — is large-language-model
+research. arXiv has no archive for it, because the taxonomy predates the field, so this
+work is filed under general `cs` next to operating systems and computational geometry. The
+method recovered it twice, independently, at two scales fifteen times apart.
+
+This is the result that justifies the whole exercise. A classifier trained on arXiv's
+labels could never have found it, and no agreement score would have revealed it — by
+construction, agreement with arXiv *penalises* discovering a category arXiv lacks.
+
+**Better taxonomies can score worse against the reference.** Splitting computer science
+into three lowers completeness against arXiv archives from 0.75 (the undivided
+seven-cluster solution) to 0.49, because a reference that keeps `cs` whole counts every
+split as an error. Agreement scores measure similarity to arXiv, not quality.
+
+### 7.3 Hypotheses, scored
+
+| | Prediction | Outcome |
+|---|---|---|
+| **H1** | Silhouette and stability will disagree; prefer stability | **Confirmed.** Silhouette peaks at k=4 where one cluster holds 45.6% of the corpus. Stability selects 8. |
+| **H2** | HDBSCAN after UMAP will not show Arcan's collapse | **Partly confirmed.** The noise collapse is fixed (74% → ≤17%) and ARI improves (0.03 → 0.61). But the cluster count is not stable across corpus size, so HDBSCAN cannot decide the number. |
+| **H3** | The categories will not line up with arXiv's 8 groups | **Confirmed**, and more strongly than expected — see §7.2. |
+| **H4** | The 8 groups will favour fewer categories than the 20 archives | **Confirmed on the pilot** (AMI peaks at k=4 for groups, ARI at k=6 for archives). On the 150k run both peak early (k=3 and k=4), so the gap narrows at scale. |
+| **H5** | Fine-tuned BERT will beat TF-IDF + LinearSVC on macro-F1 | *Pending the GPU run (§6.3).* The baseline is demanding: 0.883 macro-F1 on the pilot. |
+
+### 7.4 What we got wrong along the way
+
+Three errors are worth recording, because each changed a result and none would have been
+visible from the final numbers alone.
+
+**A null model that was not null.** Stability was first measured against data produced by
+shuffling each embedding coordinate independently. That preserves every marginal while
+destroying the joint structure, which sounds right and is wrong here: UMAP coordinates are
+multi-modal, so the product distribution keeps clusterable lumps. The "structureless" null
+scored **0.9998** and the resulting criterion selected k=16 on noise. Replaced with uniform
+points on the unit sphere, which scores 0.007.
+
+**Measuring in a space that cannot discriminate.** Stability measured inside the UMAP
+reduction saturates — 17 of 18 candidate values clear the threshold and the rule returns
+whatever the sweep's upper limit happens to be. `min_dist=0` manufactures separated clumps,
+so what is measured there is UMAP's determinism. The number is decided in the original
+embedding space, where 4 of 18 clear.
+
+**Over-reading the pilot.** The pilot's seven-cluster HDBSCAN result was initially read as
+evidence that the UMAP fix turns HDBSCAN from the worst algorithm into the best. The 150k
+run does not support that: at the same `min_cluster_size` fraction, the pilot's 12 clusters
+become 3, and its 7 become 2. The noise fix is real and replicates; the cluster count does
+not.
+
+### 7.5 Limitations
+
+**Category granularity is genuinely ambiguous.** Stability finds k=3, 4, 5 and 8 all
+reproducible. Eight is defensible as the most granular stable solution, but a four-category
+taxonomy is also supportable and would be a different, coarser answer to the same question.
+We report the criterion rather than claiming a unique truth.
+
+**The reference taxonomy is not ground truth.** 48.3% of arXiv papers carry more than one
+subject label and 17.3% span more than one top-level group, so "the" category of a paper
+often does not exist. Every agreement score here compares a hard partition against a
+reference that is itself soft.
+
+**One encoder, one corpus slice.** Results use `all-MiniLM-L6-v2` on papers from 2016
+onward. MPNet is implemented and configured but was not run at scale; on Arcan's evidence
+it would shift ARI by roughly 0.03. The 2016 cutoff removes arXiv's compositional drift but
+also means the taxonomy describes contemporary research, not the archive's history — the
+language-models category would not appear in a corpus drawn from the 1990s.
+
+**Clustering saw the whole sample.** KMeans was fitted on all 150,000 papers, so the
+validation and test abstracts contributed to defining the categories the classifier is
+scored on. The split was still fixed first and `preprocess.py` reserves a 50,000-paper
+train-only clustering subset for the robustness check; the integrity test in
+`src/check_integrity.py` verifies it contains no validation or test rows.
+
+**HDBSCAN was swept on a subsample.** On the full 150,000 papers it reached 16 GB of paged
+memory without progressing, so its sweep uses 50,000. KMeans used everything.
 
 ---
 
