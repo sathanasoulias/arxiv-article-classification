@@ -845,9 +845,48 @@ produced it.
 
 ### 6.3 Results
 
-*To be completed from the GPU run. `src/tune.py --dry-run` prints the exact 13 commands;
-`notebooks/colab_train.ipynb` runs the same search on a T4 and writes
-`reports/tuning_main_kmeans_k8_emb.csv`.*
+**The staged search has not been run.** It needs a GPU (§6.4). What this section reports is
+a single fine-tune, run to completion on CPU so that the transformer figure here is
+measured rather than projected — one configuration, one seed, at pilot scale:
+
+| Model | val macro-F1 | test macro-F1 |
+|---|---|---|
+| majority class | 0.0437 | — |
+| tf-idf + LinearSVC | 0.8834 | 0.8780 |
+| **`bert-base-uncased`, fine-tuned** | **0.9013** | **0.9008** |
+| embeddings + logistic regression *(diagnostic, see §5)* | 0.9726 | — |
+
+7,022 training abstracts, 1,544 validation, 1,434 test, on the pilot's eight discovered
+categories. lr 2e-5, batch 16, 3 epochs, 256 tokens, class-weighted loss, seed 42; 349.5
+minutes on CPU. Per-epoch validation macro-F1 was 0.8539 → 0.8954 → 0.9013, so the run had
+converged rather than been stopped early. The complete record — hyperparameters, per-class
+scores, confusion matrix, library versions — is in
+`reports/classifier_pilot_bertbase_k8_cpu.json`.
+
+Validation and test agree to within 0.0005. That is expected here rather than impressive:
+with a single configuration there was no selection pressure on the validation split to
+overfit to.
+
+![Confusion matrix](reports/figures/confusion_matrix_pilot.png)
+
+No category collapses — per-class F1 runs from 0.86 (c1, differential equations) to 0.96
+(c3, astrophysics), and the weighted and macro scores are within 0.004 of each other, so
+the class weighting did its job on an imbalanced set.
+
+**The errors are concentrated where the taxonomy is genuinely soft.** The three categories
+derived from computer science trade mistakes among themselves: 8% of language-model papers
+(c2) and 8% of deep-learning papers (c7) are predicted as algorithms/optimisation (c0), and
+6% of c2 goes to c7. Astrophysics is the cleanest at 97%, and the physics and mathematics
+categories are nearly disjoint from the rest. This mirrors the clustering: the cs/ML region
+of the embedding space is one dense mass that k=8 cuts into three, and the classifier
+inherits exactly those boundaries.
+
+**What this does and does not establish.** It establishes that the discovered categories
+are recoverable from raw abstract text by a transformer at about 0.90 macro-F1 — the
+taxonomy is learnable, not an artefact of the embedding space it was built in. It does not
+establish H5 as a general claim: +1.8 points over tf-idf, from one seed at pilot scale, is
+within the range a seed change could plausibly move. And it replaces none of stages 1–4 —
+learning rate, batch size, encoder and seed spread are all still unmeasured.
 
 ### 6.4 Why this runs on a GPU
 
@@ -916,7 +955,7 @@ split as an error. Agreement scores measure similarity to arXiv, not quality.
 | **H2** | HDBSCAN after UMAP will not show Arcan's collapse | **Partly confirmed.** The noise collapse is fixed (74% → ≤17%) and ARI improves (0.03 → 0.61). But the cluster count is not stable across corpus size, so HDBSCAN cannot decide the number. |
 | **H3** | The categories will not line up with arXiv's 8 groups | **Confirmed**, and more strongly than expected — see §7.2. |
 | **H4** | The 8 groups will favour fewer categories than the 20 archives | **Confirmed on the pilot** (AMI peaks at k=4 for groups, ARI at k=6 for archives). On the 150k run both peak early (k=3 and k=4), so the gap narrows at scale. |
-| **H5** | Fine-tuned BERT will beat TF-IDF + LinearSVC on macro-F1 | *Pending the GPU run (§6.3).* The baseline is demanding: 0.883 macro-F1 on the pilot. |
+| **H5** | Fine-tuned BERT will beat TF-IDF + LinearSVC on macro-F1 | **Weakly supported, not established.** On the pilot, fine-tuned `bert-base` reaches 0.9013 val / 0.9008 test against 0.8834 / 0.8780 for tf-idf + LinearSVC — a win, but of 1.8 points from a single seed. The seed spread that would make it a measurement (stage 4) has not been run. |
 
 ### 7.4 What we got wrong along the way
 
