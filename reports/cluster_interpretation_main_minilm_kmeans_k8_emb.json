@@ -1,0 +1,138 @@
+{
+  "phase": "main",
+  "model": "minilm",
+  "config": "kmeans_k8_emb",
+  "space": "embedding",
+  "algorithm": "kmeans",
+  "n_clusters": 8,
+  "n_papers": 150000,
+  "noise_pct": 0.0,
+  "seed": 42,
+  "agreement": {
+    "primary_archive": {
+      "homogeneity": 0.469,
+      "completeness": 0.49,
+      "v_measure": 0.4793
+    },
+    "primary_group": {
+      "homogeneity": 0.5263,
+      "completeness": 0.3567,
+      "v_measure": 0.4252
+    }
+  },
+  "terms": {
+    "0": [
+      "algorithm",
+      "problem",
+      "model",
+      "performance",
+      "algorithms",
+      "systems",
+      "optimization",
+      "network",
+      "control",
+      "framework",
+      "optimal",
+      "analysis"
+    ],
+    "1": [
+      "theory",
+      "field",
+      "model",
+      "black",
+      "mass",
+      "matter",
+      "energy",
+      "scalar",
+      "gravity",
+      "gauge",
+      "dark",
+      "quantum"
+    ],
+    "2": [
+      "models",
+      "language",
+      "model",
+      "llms",
+      "reasoning",
+      "tasks",
+      "performance",
+      "large",
+      "learning",
+      "knowledge",
+      "task",
+      "framework"
+    ],
+    "3": [
+      "equation",
+      "equations",
+      "solutions",
+      "numerical",
+      "model",
+      "boundary",
+      "problem",
+      "solution",
+      "mathbb",
+      "flow",
+      "prove",
+      "dynamics"
+    ],
+    "4": [
+      "mathbb",
+      "mathcal",
+      "prove",
+      "group",
+      "graph",
+      "algebra",
+      "finite",
+      "graphs",
+      "groups",
+      "space",
+      "let",
+      "algebras"
+    ],
+    "5": [
+      "mass",
+      "stars",
+      "galaxies",
+      "star",
+      "stellar",
+      "observations",
+      "emission",
+      "galaxy",
+      "formation",
+      "observed",
+      "gas",
+      "sim"
+    ],
+    "6": [
+      "quantum",
+      "states",
+      "magnetic",
+      "phase",
+      "spin",
+      "state",
+      "field",
+      "optical",
+      "systems",
+      "energy",
+      "temperature",
+      "properties"
+    ],
+    "7": [
+      "learning",
+      "model",
+      "models",
+      "image",
+      "training",
+      "neural",
+      "performance",
+      "network",
+      "deep",
+      "images",
+      "networks",
+      "datasets"
+    ]
+  },
+  "label_file": "labels_minilm_kmeans_k8_emb.npy"
+}

@@ -1,0 +1,9 @@
+cluster,n_papers,pct_of_corpus,top_archive,top_archive_pct,top_group,top_group_pct,archives_over_10pct
+0,28859,19.2,cs,51.4,cs,51.4,"cs, math, eess"
+1,11697,7.8,hep-ph,29.8,physics,98.9,"hep-ph, hep-th, gr-qc"
+2,17890,11.9,cs,94.6,cs,94.6,cs
+3,16063,10.7,math,59.2,math,59.2,"math, physics"
+4,17026,11.4,math,85.9,math,85.9,math
+5,12640,8.4,astro-ph,84.8,physics,99.6,astro-ph
+6,20346,13.6,cond-mat,49.6,physics,97.4,"cond-mat, physics, quant-ph"
+7,25479,17.0,cs,80.4,cs,80.4,cs

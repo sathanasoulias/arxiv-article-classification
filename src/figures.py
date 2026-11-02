@@ -24,6 +24,7 @@ Outputs: reports/figures/*.png
 
 import argparse
 import json
+import textwrap
 
 import matplotlib
 matplotlib.use("Agg")
@@ -82,9 +83,16 @@ def figure(w, h, n=1, **kw):
 
 
 def save(fig, name, note=None):
+    """Write the figure, wrapping the footnote so it cannot overrun the axis labels."""
     FIGURES.mkdir(parents=True, exist_ok=True)
     if note:
-        fig.text(0.01, 0.005, note, fontsize=7.5, color=INK_MUTED, va="bottom")
+        # ~95 characters per 10 inches of figure width keeps the note inside the frame.
+        width = max(60, int(9.5 * fig.get_size_inches()[0]))
+        wrapped = textwrap.fill(note, width=width)
+        # Reserve vertical room per wrapped line, so the note never lands on the xlabel.
+        pad = 0.028 * (wrapped.count("\n") + 1)
+        fig.subplots_adjust(bottom=fig.subplotpars.bottom + pad)
+        fig.text(0.01, 0.004, wrapped, fontsize=7.5, color=INK_MUTED, va="bottom")
     fig.savefig(FIGURES / name, dpi=DPI, bbox_inches="tight",
                 facecolor=SURFACE)
     plt.close(fig)
@@ -283,9 +291,10 @@ def fig_hdbscan(phase, model):
     hdb["mcs"] = hdb["param"].str.split("=").str[1].astype(int)
     hdb = hdb.sort_values("mcs")
 
-    fig, (ax1, ax2) = figure(11, 4.4, n=2)
+    fig, (ax1, ax2) = figure(11.6, 4.8, n=2)
     x = np.arange(len(hdb))
-    labels = [f"{m:,}" for m in hdb.mcs]
+    # The cluster count belongs on the axis: it is what makes a high DBCV suspect.
+    labels = [f"{m:,}\n{int(c)} clusters" for m, c in zip(hdb.mcs, hdb.n_clusters)]
 
     ax1.bar(x - 0.2, hdb.dbcv, width=0.38, color=CATEGORICAL[0], zorder=3)
     ax1.bar(x + 0.2, hdb.ari_archive, width=0.38, color=CATEGORICAL[1], zorder=3)
@@ -294,11 +303,25 @@ def fig_hdbscan(phase, model):
                  fontsize=8, color=INK_2)
         ax1.text(xi + 0.2, ari + 0.012, f"{ari:.3f}", ha="center",
                  fontsize=8, color=INK_2)
+
+    # Flag the case where the internal score is highest on a degenerate partition.
+    peak = hdb.loc[hdb.dbcv.idxmax()]
+    if peak.largest_cluster_pct > 60:
+        xi = int(np.flatnonzero(hdb.mcs.to_numpy() == peak.mcs)[0])
+        ax1.annotate(f"highest DBCV, but one\ncluster holds "
+                     f"{peak.largest_cluster_pct:.0f}% of papers",
+                     xy=(xi - 0.2, peak.dbcv), xytext=(xi + 0.55, peak.dbcv * 0.33),
+                     textcoords="data", fontsize=8.5, color=INK, ha="center",
+                     arrowprops=dict(arrowstyle="-", color=INK_2, linewidth=1,
+                                     shrinkA=0, shrinkB=4))
+
     ax1.set_xticks(x, labels)
-    style(ax1, "HDBSCAN after UMAP reduction",
+    style(ax1, "Internal scores reward degenerate partitions",
           xlabel="min_cluster_size", ylabel="score")
+    ax1.set_ylim(0, max(hdb.dbcv.max(), hdb.ari_archive.max()) * 1.28)
     ax1.legend(["DBCV (internal)", "ARI vs archives (external)"], frameon=False,
-               fontsize=8.5, labelcolor=INK_2, loc="upper right")
+               fontsize=8.5, labelcolor=INK_2, loc="upper center", ncol=2,
+               bbox_to_anchor=(0.5, 1.02))
 
     ax2.plot(x, hdb.noise_pct, color=CATEGORICAL[7], linewidth=2, marker="o",
              markersize=5, zorder=3)
@@ -308,12 +331,14 @@ def fig_hdbscan(phase, model):
                      fontsize=8, color=INK_2)
     ax2.set_xticks(x, labels)
     ax2.set_ylim(0, max(hdb.noise_pct) * 1.45)
-    style(ax2, "Noise stays low where Arcan reported up to 74%",
+    style(ax2, "The cluster count swings with the parameter",
           xlabel="min_cluster_size", ylabel="unassigned (%)")
 
     save(fig, f"clustering_hdbscan_{phase}.png",
-         "Reducing with UMAP before density clustering is what prevents the collapse "
-         "Arcan (2026) reported for HDBSCAN.")
+         "Reducing with UMAP before density clustering keeps noise far below the 74% "
+         "Arcan (2026) reported. The number of clusters, however, is not stable "
+         "across either the parameter or the corpus size, so it does not settle how "
+         "many categories there are.")
 
 
 def fig_stability(phase, model, space="embedding"):

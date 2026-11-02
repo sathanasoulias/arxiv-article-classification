@@ -444,35 +444,64 @@ roughly, on how long the abstract is.
 Two algorithms with complementary failure modes are swept, so neither one's assumptions
 go unchallenged:
 
-- **KMeans**, k = 3…20. Assigns every paper, assumes roughly convex clusters.
+- **KMeans**, k = 3…20, on all 150,000 papers. Assigns every paper; assumes roughly
+  convex clusters.
 - **HDBSCAN**, `min_cluster_size` from 0.2% to 4% of the corpus. Finds its own number of
   clusters and can refuse to assign a paper.
 
-HDBSCAN is run on a 50-dimensional UMAP reduction. This is the fix for the failure
-described in §1.4: density estimates degrade badly in high dimensions, and Arcan ran
-HDBSCAN on raw vectors.
+HDBSCAN is run on a 50-dimensional UMAP reduction, the fix for the failure described in
+§1.4. It is also run on a 50,000-paper subsample: on the full sample it reached 16 GB of
+paged memory on a 32 GB machine and made no progress in twenty hours. KMeans has no such
+problem.
 
-#### The UMAP fix works, and it is the clearest single result
+#### The UMAP reduction fixes the noise collapse
 
-| | Arcan (no reduction) | This work (UMAP → 50d) |
+Arcan ran HDBSCAN on raw high-dimensional vectors and reported 3–5 clusters with **up to
+74% of papers discarded as noise**, concluding that HDBSCAN "performed worst by a wide
+margin." With the reduction in place, that collapse does not happen:
+
+| | Arcan (no reduction) | pilot, 10k | main, 50k |
+|---|---|---|---|
+| Papers left as noise | up to **74%** | 1.0 – 31.4% | **0.0 – 16.8%** |
+| Best ARI vs archives | 0.01 – 0.03 | **0.504** | **0.610** |
+| Best DBCV | not reported | 0.681 | 0.716 |
+
+Both the noise rate and the agreement with arXiv improve by a large margin, at both
+scales, and the best ARI exceeds Arcan's best reported figure of 0.470 — obtained,
+unlike theirs, without ever consulting the labels to choose a configuration.
+
+![HDBSCAN sweep](reports/figures/clustering_hdbscan_main.png)
+
+#### But HDBSCAN's cluster count does not survive a change of scale
+
+The pilot alone would have supported a stronger claim. It should not be made. Running the
+same `min_cluster_size` *fraction* on the two corpus sizes gives different answers:
+
+| `min_cluster_size` | pilot (10k) | main (50k) |
 |---|---|---|
-| Clusters found | 3–5 | **7** |
-| Papers left as noise | up to **74%** | **11.0%** |
-| ARI vs arXiv archives | 0.01–0.03 | **0.504** |
-| DBCV | not reported | 0.681 |
+| 0.5% of corpus | **12** clusters | **3** clusters |
+| 1% of corpus | **7** clusters | **2** clusters (82% in one) |
+| 2% of corpus | 2 clusters | 4 clusters |
+| 4% of corpus | 2 clusters | 4 clusters |
 
-Their conclusion was that HDBSCAN "performed worst by a wide margin." On this evidence
-that was an artefact of the missing reduction step, not a property of the algorithm. The
-resulting ARI of 0.504 also exceeds their best reported figure of 0.470 — and ours was
-obtained without ever looking at the labels to choose a configuration, while theirs was
-obtained by maximising against them.
+The 7-cluster solution that looked so convincing on 10,000 papers does not reappear on
+150,000. The count swings with both the parameter and the corpus size, and neighbouring
+settings produce degenerate two-cluster partitions in which one cluster holds 82% of the
+data.
 
-![HDBSCAN sweep](reports/figures/clustering_hdbscan_pilot.png)
+This is exactly the instability the literature review flagged for this family of methods
+(§1.2): reported topic counts that vary wildly on the same data. It means **HDBSCAN
+cannot be the instrument that answers "how many categories are there."** What it provides
+is a useful independent check on a number chosen some other way, and a demonstration that
+the reduction step matters.
 
-One number is deliberately *not* compared: our silhouette scores (0.41–0.59) dwarf
-Arcan's (0.063), but only because ours are measured inside the UMAP reduction, which
-compresses clusters by construction. The two figures are not commensurable and we do not
-claim an improvement there.
+So the number is settled by stability instead, and KMeans — whose only free parameter *is*
+the number — carries the final taxonomy.
+
+One number is deliberately *not* compared with Arcan: our silhouette scores (0.40–0.59)
+dwarf theirs (0.063), but only because ours are measured inside the UMAP reduction, which
+compresses clusters by construction. The two figures are not commensurable and no
+improvement is claimed there.
 
 ### 4.3 Choosing the number of categories
 
@@ -480,7 +509,7 @@ This is the question the brief actually asks, so it gets its own instrument.
 
 #### Why not silhouette
 
-![k sweep](reports/figures/clustering_k_sweep_pilot.png)
+![k sweep](reports/figures/clustering_k_sweep_main.png)
 
 Silhouette's optimum is **k=3** (0.586) — a solution in which a single cluster holds
 **44.3% of the entire corpus**. Silhouette rewards a small number of well-separated blobs,
@@ -558,52 +587,73 @@ at 6 and 7, and finds a genuine one at 8.
 ### 4.4 What the eight categories are
 
 `interpret.py` describes each category three ways — the words that distinguish it
-(c-TF-IDF), the papers nearest its centre, and which arXiv archives land in it.
+(c-TF-IDF), the papers nearest its centre, and which arXiv archives land in it. Below is
+the taxonomy fitted on all 150,000 abstracts.
 
-| # | Share | Reading | Dominant archive |
-|---|---|---|---|
-| 0 | 20.3% | Algorithms, optimisation and control | `cs` (43%) |
-| 1 | 10.6% | Differential equations and numerical analysis | `math` (48%) |
-| 2 | 10.0% | **Language models and NLP** | `cs` (93%) |
-| 3 | 9.8% | Astrophysics and gravitation | `astro-ph` (69%) |
-| 4 | 13.6% | Condensed matter and quantum systems | `cond-mat` (47%) |
-| 5 | 8.4% | High-energy and nuclear physics | `hep-ph` (32%) |
-| 6 | 12.5% | Pure mathematics and algebra | `math` (68%) |
-| 7 | 15.0% | Machine learning and computer vision | `cs` (73%) |
+| # | Share | Reading | Dominant archive | Distinguishing terms |
+|---|---|---|---|---|
+| 0 | 19.2% | Algorithms, optimisation and control | `cs` (51%) | algorithm, problem, optimization, control |
+| 1 | 7.8% | High-energy theory and gravitation | `hep-ph` (30%) | theory, field, black, mass, gravity |
+| 2 | 11.9% | **Language models and NLP** | `cs` (**95%**) | models, language, **llms**, reasoning |
+| 3 | 10.7% | Differential equations, numerical analysis | `math` (59%) | equation, solutions, numerical, boundary |
+| 4 | 11.4% | Pure mathematics and algebra | `math` (86%) | mathbb, mathcal, prove, algebra, graphs |
+| 5 | 8.4% | Astrophysics | `astro-ph` (85%) | stars, galaxies, stellar, emission |
+| 6 | 13.6% | Condensed matter and quantum systems | `cond-mat` (50%) | quantum, states, magnetic, spin, optical |
+| 7 | 17.0% | Machine learning and computer vision | `cs` (80%) | learning, image, training, neural, deep |
 
-Cluster names are our reading of the evidence, not model output. The largest category
-holds 20.3% of the corpus and every paper is assigned.
+Category names are our reading of the evidence, not model output. Every paper is
+assigned, and the largest category holds 19.2% of the corpus — no degenerate blob.
 
-![UMAP overview](reports/figures/umap_overview_pilot.png)
+The structure also **replicates**: the pilot, drawn fifteen times smaller and clustered
+independently, produced the same eight-way split, including a distinct language-models
+category at 10.0% versus 11.9% here.
+
+![UMAP overview](reports/figures/umap_overview_main.png)
+
+![Each category](reports/figures/umap_facets_main.png)
 
 #### The finding: this is not arXiv's taxonomy, and that is the point
 
-Two structural differences, both visible in the figure above.
+Two structural differences, both visible above.
 
 **It splits what arXiv merges.** All of computer science is one arXiv archive. The data
-divides it into three categories that share almost no vocabulary: optimisation and control
-(cluster 0), language models (cluster 2), and vision and deep learning (cluster 7).
-Mathematics splits in two along the applied/pure line.
+divides it into three categories that share almost no vocabulary: optimisation and
+control (0), language models (2), and vision and deep learning (7) — together 48% of the
+corpus. Mathematics likewise splits along the applied/pure line into categories 3 and 4.
 
 **It merges what arXiv splits.** arXiv maintains thirteen separate physics archives; the
-discovered taxonomy covers all of them with three categories, and puts `astro-ph`
-together with `gr-qc` because papers about galaxies and papers about black holes share a
-vocabulary.
+discovered taxonomy covers all of them with three categories, grouping `hep-ph` with
+`hep-th` and `gr-qc` because papers on particle theory, string theory and gravitation
+share a vocabulary.
 
-Most striking: **cluster 2 is a category arXiv does not have.** Its top terms are `llms`,
-`language`, `reasoning`, `models`. There is no arXiv archive for large language models —
-the taxonomy predates them, and new work is filed under the general `cs` umbrella. The
-method recovered a research area that the official taxonomy cannot express. This is the
-clearest argument for discovering categories rather than inheriting them, and it is not an
-argument we could have made from agreement scores.
+![Composition](reports/figures/cluster_archive_heatmap_main_kmeans_k8_emb.png)
 
-That also explains why agreement with arXiv is *lower* for this taxonomy than for the
-7-cluster HDBSCAN one (completeness 0.52 vs 0.75 against archives). Splitting `cs` into
-three necessarily reduces completeness against a reference that keeps it whole. The lower
-score reflects a more informative taxonomy, which is precisely why §1.3 forbids using
-agreement scores to choose between taxonomies.
+Most striking: **category 2 is one arXiv does not have.** Its top terms are `llms`,
+`language`, `reasoning`, and it is 94.6% computer science. There is no arXiv archive for
+large language models — the taxonomy predates them, so the work is filed under the
+general `cs` umbrella alongside operating systems and computational geometry. The method
+recovered a research area the official taxonomy cannot express, and recovered it twice,
+independently, at two different scales.
 
-![Composition](reports/figures/cluster_archive_heatmap_pilot_kmeans_k8_emb.png)
+This is the clearest argument for discovering categories rather than inheriting them, and
+it is not an argument that any agreement score could have produced.
+
+#### Why the agreement scores are *lower* for the better taxonomy
+
+| Reference level | Homogeneity | Completeness | V-measure |
+|---|---|---|---|
+| 20 archives | 0.469 | 0.490 | 0.479 |
+| 8 groups | 0.526 | 0.357 | 0.425 |
+
+Completeness is the fraction of each arXiv class that stays together. Splitting `cs`
+into three necessarily reduces it, because a reference that keeps `cs` whole counts every
+split as an error. The 7-cluster HDBSCAN solution scores *higher* on completeness against
+archives (0.75 on the pilot) precisely because it leaves the computer-science blob
+undivided — and that blob held 43% of the corpus.
+
+A taxonomy is not better for agreeing with arXiv more. This is exactly why §1.3 forbids
+using agreement scores to choose between taxonomies, and why the number was settled by
+stability instead.
 
 ### 4.5 The classifier
 
