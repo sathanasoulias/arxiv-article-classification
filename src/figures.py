@@ -342,7 +342,13 @@ def fig_hdbscan(phase, model):
 
 
 def fig_stability(phase, model, space="embedding"):
+    # Sweeps are now tagged with their sample size; prefer the largest available.
     path = REPORTS / f"stability_{phase}_{model}_{space}.json"
+    if not path.exists():
+        tagged = sorted(REPORTS.glob(f"stability_{phase}_{model}_{space}_n*.json"),
+                        key=lambda p: int(p.stem.rsplit("_n", 1)[1]))
+        if tagged:
+            path = tagged[-1]
     if not path.exists():
         print(f"  skip stability: {path.name} not found")
         return
@@ -667,3 +673,67 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def fig_stability_consensus(model="minilm", space="embedding"):
+    """The three sweeps on one axis, with the k that every sweep found stable.
+
+    A single stability curve looks decisive and is not: the three sweeps agree on
+    k=3, 5 and 8 and disagree about everything else. Plotting them together is the
+    argument for the replication rule, so this figure replaces the single-curve one
+    as the evidence for the reported number.
+    """
+    paths = sorted(REPORTS.glob(f"stability_*_{model}_{space}_n*.json"),
+                   key=lambda p: int(p.stem.rsplit("_n", 1)[1]))
+    if len(paths) < 2:
+        print("  skip stability consensus: need at least two tagged sweeps")
+        return
+
+    runs, stable_sets = [], []
+    for p in paths:
+        s = json.loads(p.read_text(encoding="utf-8"))
+        c = pd.DataFrame(s["curve"]).sort_values("k")
+        lower = c.stability - c.sd
+        stable_sets.append(set(c.k[lower >= s["selection"]["threshold"]]))
+        runs.append((s["n_papers"], c, s["selection"]["threshold"]))
+    shared = sorted(set.intersection(*stable_sets))
+    threshold = runs[0][2]
+
+    fig, ax = figure(9.8, 5.0)
+
+    # Shared values first, as background bands, so the curves read on top of them.
+    for k in shared:
+        ax.axvspan(k - 0.26, k + 0.26, color=CATEGORICAL[2], alpha=0.14,
+                   zorder=1, linewidth=0)
+
+    for i, (n, c, _) in enumerate(runs):
+        colour = CATEGORICAL[i]
+        ax.plot(c.k, c.stability - c.sd, color=colour, linewidth=2,
+                marker="o", markersize=4.5, zorder=4 + i)
+        ax.annotate(f"n={n:,}", xy=(c.k.iloc[-1], float((c.stability - c.sd).iloc[-1])),
+                    xytext=(7, 0), textcoords="offset points",
+                    color=colour, fontsize=9, va="center", fontweight="bold")
+
+    ax.axhline(threshold, color=INK_2, linewidth=1, linestyle=(0, (2, 3)), zorder=2)
+    # Placed where every curve has already dropped below the line, so it collides
+    # with nothing; at the left edge it sits on top of the n=10,000 series.
+    ax.text(12.4, threshold + 0.018, f"stable threshold {threshold}",
+            fontsize=8.5, color=INK_2)
+
+    # Labelled directly above its own shaded band — a leader line from the empty
+    # lower half would have to cross all three curves to reach the point.
+    chosen = max(shared)
+    ax.text(chosen, 1.012, f"k={chosen}", ha="center", va="bottom",
+            fontsize=10.5, color=INK, fontweight="bold")
+    ax.text(chosen + 0.45, 1.012, "largest k stable in every sweep",
+            ha="left", va="bottom", fontsize=9, color=INK_2)
+
+    style(ax, "Only three values of k are stable in every sweep",
+          xlabel="number of clusters (k)",
+          ylabel="stability lower bound (mean − 1 sd)")
+    ax.set_xticks(list(runs[0][1].k))
+    ax.set_xlim(runs[0][1].k.min() - 0.5, runs[0][1].k.max() + 2.4)
+    ax.set_ylim(0.25, 1.04)
+    save(fig, f"stability_consensus_{space}.png",
+         f"Shaded: k stable in every sweep ({', '.join(str(k) for k in shared)}). "
+         f"Lower bound shown, which is what the rule tests. No arXiv label is consulted.")

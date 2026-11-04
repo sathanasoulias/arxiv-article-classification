@@ -1,0 +1,47 @@
+{
+  "rule": "largest k whose one-standard-deviation lower bound clears 0.8 in EVERY independent sweep",
+  "runs": {
+    "stability_main_minilm_embedding_n20000": {
+      "n_papers": 20000,
+      "stable_k": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    "stability_main_minilm_embedding_n50000": {
+      "n_papers": 50000,
+      "stable_k": [
+        3,
+        5,
+        6,
+        7,
+        8,
+        9,
+        15,
+        16,
+        17,
+        18
+      ]
+    },
+    "stability_pilot_minilm_embedding_n10000": {
+      "n_papers": 10000,
+      "stable_k": [
+        3,
+        4,
+        5,
+        8
+      ]
+    }
+  },
+  "stable_in_every_run": [
+    3,
+    5,
+    8
+  ],
+  "selected_k": 8,
+  "n_runs": 3
+}

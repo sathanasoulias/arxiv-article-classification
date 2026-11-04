@@ -9,13 +9,20 @@
   "criterion": "mean ARI between independently subsampled clusterings; no external label is consulted at any point",
   "null_model": "uniform on unit sphere",
   "selection": {
-    "rule": "largest k whose stability minus one standard deviation stays at or above 0.8",
+    "rule": "largest k inside the first stable block: stability minus one standard deviation stays at or above 0.8, scanning upward and stopping at the first two consecutive failures",
+    "stable_block": [
+      3,
+      4,
+      5
+    ],
+    "collapse_begins_at_k": 6,
+    "selected_k_global_rule": 8,
     "peak_k": 5,
     "peak_stability": 0.9726,
-    "selected_k": 8,
-    "selected_stability": 0.9421,
-    "selected_sd": 0.0203,
-    "selected_lower_bound": 0.9218,
+    "selected_k": 5,
+    "selected_stability": 0.9726,
+    "selected_sd": 0.0051,
+    "selected_lower_bound": 0.9674,
     "threshold": 0.8,
     "robust_k_values": [
       3,
