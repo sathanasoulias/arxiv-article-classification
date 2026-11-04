@@ -13,7 +13,7 @@ specified and not run.
 | 2 | Preprocess | `preprocess.py` | 2.1M eligible | 150,000 sampled, split 70/15/15 |
 | 3 | Embed | `embed.py` | 150,000 | 150,000 × 384 matrix |
 | 4 | Cluster | `cluster.py` | 150,000 | 23 scored configurations |
-| 5 | **Choose k** | `stability.py` | 20,000 | **k = 8**, ARI 0.958 ± 0.012 |
+| 5 | **Choose k** | `stability.py` | 10k / 20k / 50k | **k = 8**, stable in all three sweeps |
 | 6 | Interpret | `interpret.py` | 150,000 | 8 named categories |
 | 7 | Baselines | `baseline.py` | 150,000 | tf-idf+SVM 0.9005 macro-F1 |
 | 8 | Classifier | `train_classifier.py` | 7,022 (pilot) | BERT 0.9013 val / 0.9008 test |
@@ -291,41 +291,59 @@ the mean. On the pilot the mean alone selects k=11 (0.849 ± 0.067) over k=8
 chosen: a two-way split is perfectly stable and useless, so the most granular
 reproducible taxonomy wins.
 
-**Outputs:** `reports/stability_main_minilm_embedding.{csv,json}`,
-`reports/figures/stability_main_embedding.png`
+**Outputs:** `reports/stability_<phase>_<model>_<space>_n<N>.{csv,json}` — one pair per
+sweep, tagged with its sample size — plus `reports/stability_consensus.json` and
+`reports/figures/stability_consensus_embedding.png`.
+
+**The sweep was run three times**, on independent samples of 10,000, 20,000 and 50,000
+abstracts. This was not redundancy for its own sake: the three curves disagree, and the
+disagreement is the reason the selection rule is what it is.
+
+| Sweep | k whose lower bound clears 0.80 |
+|---|---|
+| pilot, n=10,000 | 3, 4, 5, **8** — dips at 6 and 7 |
+| main, n=20,000 | 3, 4, 5, 6, 7, **8** — collapses from 9 |
+| main, n=50,000 | 3, 5, 6, 7, **8**, 9, 15, 16, 17, 18 — collapses at 10, revives at 15 |
+| **stable in all three** | **3, 5, 8** |
+
+**(d) The selection rule — two attempts discarded.** The original rule took the largest k
+clearing the threshold anywhere in the sweep. On the 50,000-row run that returns **18**:
+the curve collapses at k=10 as expected, then climbs back to a lower bound of 0.93 at
+k=17, and a rule with no notion of a first stable block walks straight past the collapse.
+That is the same defect this pipeline rejects in the UMAP space — a rule whose answer is
+set by the sweep's upper limit. The obvious repair, stopping at the first sustained
+collapse, returns **5** on the pilot, whose genuine dip at k=6–7 reads as a cliff.
+
+What survives is replication. A number of categories is only meaningful if an independent
+sample finds it again — the premise the whole method rests on, applied to the sweeps
+themselves rather than only to the subsamples inside one sweep.
+
+> **Rule:** the largest k whose one-standard-deviation lower bound clears 0.80 in
+> **every** sweep. Strictly more conservative than any single-curve rule: it cannot
+> select a k that any sweep found unstable, and it is indifferent to where a particular
+> curve is ragged.
 
 **Result:**
 
-| k | stability | sd | lower bound | |
-|---|---|---|---|---|
-| 3 | 0.9808 | 0.0107 | 0.9701 | stable |
-| 4 | 0.9793 | 0.0074 | 0.9719 | stable |
-| 5 | 0.9715 | 0.0102 | 0.9613 | stable |
-| 6 | 0.9723 | 0.0039 | 0.9684 | stable |
-| 7 | 0.9558 | 0.0145 | 0.9413 | stable |
-| **8** | **0.9576** | **0.0121** | **0.9455** | **selected** |
-| 9 | 0.8291 | 0.0874 | 0.7417 | cliff |
-| 10–20 | 0.737–0.823 | — | 0.653–0.768 | none stable |
+> **k = 8.** Lower bound 0.922 at n=10,000, 0.946 at n=20,000, 0.893 at n=50,000 —
+> stable in all three, against a structureless null of 0.005–0.008. Only k=3, k=5 and
+> k=8 clear everywhere; 8 is the largest, and among reproducible taxonomies the more
+> informative is preferred.
 
-> **k = 8.** ARI 0.958 ± 0.012 between independent subsamples, against 0.007 for
-> structureless data of the same shape. No arXiv label was consulted.
+No arXiv label was consulted at any point. **An independent check agrees:** HDBSCAN —
+different algorithm, different space, given no k at all — settles on 7 on the pilot.
 
-Six values clear the bar and they form a contiguous block, k=3 through k=8, followed by
-a cliff: the lower bound falls 0.946 → 0.742 in one step and never recovers across the
-remaining eleven. Read plainly, **the data supports any number of categories up to
-eight and none above it.**
+**What one sweep alone would have claimed.** Reported from the 20,000-row run only, this
+phase would have described a textbook plateau from k=3 to k=8 with a clean cliff at k=9 —
+real in that sample, absent in the other two. The number is unchanged; the evidence for it
+is now agreement between samples rather than the shape of a single curve. Recorded in
+README §7.4.
 
-**Two checks agree.** The 10,000-paper pilot, drawn fifteen times smaller and clustered
-separately, also selects k=8. HDBSCAN — different algorithm, different space, given no
-k at all — settles on 7 on that pilot.
-
-**Sample size caveat.** Because the estimator costs 7,200 clusterings, the sweep runs on
-a random subsample of the main corpus capped by `--max-n`, and the reported curve above
-was computed on 20,000 rows. This is the one result in the report not computed on the
-full 150,000 — clustering, interpretation, agreement and baselines all are. The
-`n_papers` field in the JSON always records the true figure.
-
----
+**Sample size caveat.** The estimator costs 7,200 clusterings per sweep, so each runs on a
+capped subsample rather than all 150,000. This is the one result in the report not
+computed on the full corpus. Sample size is part of every filename — an earlier build let
+two sweeps differing only in `--max-n` overwrite each other, which briefly left one run's
+curve stamped with another's metadata.
 
 ## Phase 6 — Interpreting the categories
 

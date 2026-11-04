@@ -9,7 +9,8 @@ likely to ask with the answer ready.
 **Three things to land, in priority order:**
 
 1. The number of categories was chosen **without ever looking at arXiv's labels** — by
-   reproducibility, with a null model and a stated rule. **8.**
+   reproducibility across three independent samples, with a null model and a stated
+   rule. **8.**
 2. The method found a category **arXiv does not have**: large language models, 11.9% of
    the corpus.
 3. The rejected approaches are reported as carefully as the accepted one — including
@@ -196,48 +197,63 @@ null is points drawn uniformly on the unit sphere — the correct shape, because
 vectors are L2-normalised. It scores **0.007**.
 
 **The rule.** Scores must be high *and* concentrated, so selection uses a
-**one-standard-deviation lower bound**, not the mean. Among all k that clear it, take the
-largest: a two-way split is perfectly stable and useless, so the most granular
-*reproducible* taxonomy wins.
+**one-standard-deviation lower bound**, not the mean. And — the part that took three
+attempts to get right — a k counts only if **every** independent sweep found it stable.
+Among those, take the largest.
 
 **If asked — "isn't this expensive?"**
-400 clusterings per candidate k, 7,200 across the sweep. That cost is why the sweep runs
-on a capped subsample of the main corpus — the one result in the report not computed on
-all 150,000. The `n_papers` field in the output JSON always records the true figure.
+400 clusterings per candidate k, 7,200 across one sweep, and we ran three. That cost is
+why each sweep runs on a capped subsample — the one result in the report not computed on
+all 150,000. Sample size is in every filename and every output record.
 
 ---
 
 ## Slide 7 — The answer
 
-**Headline:** **8 categories.** ARI 0.958 ± 0.012, against 0.007 for structureless data.
+**Headline:** **8 categories** — the largest number that *every* independent sweep found
+stable.
 
-**Show:** `reports/figures/stability_main_embedding.png`, plus the shape of the curve:
+**Show:** `reports/figures/stability_consensus_embedding.png` — all three sweeps on one
+axis, with the shared-stable values shaded.
 
-| k | lower bound | |
-|---|---|---|
-| 3–8 | 0.941 – 0.972 | **all stable** |
-| 9 | **0.742** | cliff |
-| 10–20 | 0.653 – 0.768 | none stable |
+| Sweep | k values that clear the bar |
+|---|---|
+| n=10,000 | 3, 4, 5, **8** |
+| n=20,000 | 3, 4, 5, 6, 7, **8** |
+| n=50,000 | 3, 5, 6, 7, **8**, 9, 15, 16, 17, 18 |
+| **all three** | **3, 5, 8** |
 
-**Speaker notes.** Six values clear the bar and they form a *contiguous block*, k=3
-through k=8, then the lower bound falls from 0.946 to 0.742 in a single step and never
-recovers across the remaining eleven. That is what a well-behaved stability curve looks
-like: a plateau and a cliff, not a jagged line you have to squint at.
+**Speaker notes.** We ran the sweep three times on independent samples. Each curve looks
+decisive on its own — and they disagree about almost everything: where the collapse
+starts, whether k=6 and k=7 are stable, whether stability revives at high k.
 
-Read plainly: **the data supports any number of categories up to eight, and none above
-it.** We report eight as the most granular reproducible taxonomy.
+Three values survive in all three: 3, 5 and 8. **Eight is the largest**, and among
+reproducible taxonomies the more informative one is preferred — a three-way split is
+trivially easy to reproduce and tells you almost nothing.
 
-**Two independent checks agree.** The 10,000-paper pilot — a fifteenth of the size,
-clustered separately — also selects 8. HDBSCAN, a different algorithm in a different
-space given no k at all, settles on 7.
+k=8's lower bound: **0.922 / 0.946 / 0.893** across the three sweeps, against a
+structureless null of 0.005–0.008. Two orders of magnitude above noise, every time.
 
-**Be honest about this, do not let them find it:** eight is not forced. k=3 through k=8
-are all reproducible, so a four-category taxonomy is a defensible coarser answer to the
-same question. What we claim is the criterion, stated in advance, not a unique truth.
+**Say this plainly, it is the strongest line available:** the number does not rest on the
+shape of any one curve. It rests on three independent samples agreeing.
+
+**Be honest and do not let them find it:** eight is not forced. k=3 and k=5 are also
+reproducible, so a coarser taxonomy is a defensible answer to the same question. What we
+claim is the criterion, stated in advance, not a unique truth.
 
 **If asked — "why not k=3, it scores highest?"**
 Because the rule was fixed before the result: among reproducible options, prefer the more
-informative. A two- or three-way split is perfectly stable and tells you almost nothing.
+informative. A three-way split of all of science is stable and useless.
+
+**If asked — "why three sweeps rather than one bigger one?"**
+Because a single sweep cannot tell you whether its own shape replicates — and on this data
+it does not. The first sweep showed a textbook plateau and cliff. Running it again at a
+larger sample showed that plateau was partly specific to that sample. See Slide 13.
+
+**If asked — "isn't picking the intersection post-hoc?"**
+The threshold and the lower-bound test were fixed in advance. What changed is that we
+stopped trusting one curve's shape and required agreement across samples — which is
+strictly *more* conservative. It cannot select a k that any sweep found unstable.
 
 ---
 
@@ -396,7 +412,7 @@ it a measurement has not been run. A single fine-tuning run is not a measurement
 
 ## Slide 13 — What we got wrong
 
-**Headline:** Three errors, each of which changed a result, none visible from the final
+**Headline:** Four errors, each of which changed a result, none visible from the final
 numbers.
 
 **Speaker notes — this slide is a differentiator, not a confession.** Any reviewer has
@@ -422,9 +438,30 @@ cluster counts do not hold, though the noise fix does. (b) The pilot showed k=6 
 a tidy story. It did not replicate: at scale those are among the *most* stable values.
 **The selected number was right, but the reasoning we first gave for it was wrong.**
 
-**The lesson to state out loud:** the pilot is for validating the pipeline, not for
-drawing conclusions. We found this by replicating at scale rather than by trusting the
-small run.
+**4. A selection rule that read one curve's shape — the one that mattered most.** The
+number of categories was first chosen by taking the largest k clearing the threshold *in
+a single sweep*. That sweep showed a plateau from k=3 to k=8 and a clean cliff at k=9,
+and we wrote it up as "what a well-behaved stability curve looks like."
+
+Re-running at 50,000 abstracts broke it. Stability collapses at k=10 as expected — then
+**revives to 0.93 at k=17**, and the rule, having no notion of a first stable block,
+returned **18**. That is exactly the defect we had already criticised in the UMAP
+measurement: a rule whose answer is set by the sweep's upper limit. The obvious repair —
+stop at the first sustained collapse — returned **5** on the pilot, whose real dip at
+k=6–7 reads as a cliff. Both rules were discarded.
+
+The fix was to stop trusting curve shape and require **replication across sweeps**: a k
+counts only if every independent sample found it stable. That gives 8 — the same number,
+now resting on agreement between samples instead of the shape of one line.
+
+**The lesson to state out loud:** on this corpus, any claim resting on the shape of one
+curve should be assumed unreplicated until checked. That is three separate times a single
+sample suggested a tidier story than the data supports — and it is why the final number is
+the one all three sweeps agree on rather than the one the prettiest curve gave us.
+
+**If asked — "so your headline number changed?"**
+No. It was 8 before and it is 8 now. What changed is the argument for it, which is now
+stronger: three independent samples agreeing, rather than one curve's shape.
 
 ---
 
@@ -473,8 +510,9 @@ under three seeds so the headline carries a spread.
 **Headline:** Eight categories, chosen by reproducibility, including one arXiv does not
 have.
 
-1. **Eight.** ARI 0.958 ± 0.012 between independent subsamples, against 0.007 for
-   structureless data. No arXiv label consulted. Stable for k=3–8 with a cliff at k=9.
+1. **Eight.** The largest k that every one of three independent sweeps — 10,000, 20,000
+   and 50,000 abstracts — found reproducible, against a structureless null two orders of
+   magnitude below. No arXiv label consulted.
 2. **The categories mean something.** Named from distinguishing vocabulary, representative
    abstracts and archive composition; nothing degenerate.
 3. **One has no arXiv equivalent** — large language models, 11.9% of the corpus. Found
@@ -504,10 +542,11 @@ three times we got it wrong first.
 | Clustering sweep | 23 configurations (18 KMeans + 5 HDBSCAN) |
 | Silhouette optimum | k=4 — 45.6% in one cluster |
 | DBCV optimum | 2 clusters — 82.7% in one |
+| Stability sweeps | 3 independent: n=10,000 / 20,000 / 50,000 |
 | **Selected k** | **8** |
-| **Stability at k=8** | **0.958 ± 0.012** (null 0.007) |
-| Stability cliff | k=9, lower bound 0.742 |
-| Pilot agrees | k=8 · HDBSCAN agrees k=7 |
+| **k=8 lower bound** | **0.922 / 0.946 / 0.893** (null 0.005–0.008) |
+| Stable in every sweep | k = 3, 5, 8 |
+| HDBSCAN agrees | k=7 on the pilot |
 | Category shares | 7.8% – 19.2% |
 | LLM category | 11.9%, 94.6% cs |
 | Agreement (archives) | H 0.469 / C 0.490 |

@@ -734,15 +734,18 @@ has no labels to hold out — the equivalent of held-out evaluation is resamplin
 
 | Question | Instrument | Result |
 |---|---|---|
-| Is it reproducible? | ARI between independent subsamples | **0.958 ± 0.012** at k=8 |
-| Is it better than nothing? | the same, on structureless data | null **0.007** |
+| Is it reproducible? | ARI between independent subsamples, three sweeps | lower bound **0.922 / 0.946 / 0.893** at k=8 |
+| Does it replicate? | k stable in *every* sweep | **3, 5, 8** — 8 is the largest |
+| Is it better than nothing? | the same, on structureless data | null **0.005–0.008** |
 | Is it balanced? | share held by the largest category | **19.2%** |
 | Does it cover the data? | fraction of papers assigned | **100%** |
 | Is it readable? | c-TF-IDF terms, centroid papers | §4.4 |
 
-The reproducibility figure is the one that matters. At k=8 two independent 80% subsamples
-of the corpus agree at ARI 0.958, against 0.007 for uniform points on the sphere. The
-taxonomy is a property of the data, not of the run.
+The reproducibility figures are the ones that matter, and the point is that there are
+three of them. At k=8 two independent 80% subsamples agree well above the threshold in
+every sweep — at 10,000, 20,000 and 50,000 abstracts — against 0.005–0.008 for uniform
+points on the sphere. The taxonomy is a property of the data, not of any one run; that is
+the claim a single sweep could not support, and §7.4 records what happened when we tried.
 
 **What we do not claim.** Internal geometric scores were not used to select anything, for
 a reason this project demonstrated twice:
