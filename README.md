@@ -288,8 +288,11 @@ We also document the limits. Category granularity is genuinely ambiguous, scient
 and discovered clusters are not the same kind of object as human-assigned subject labels. Where our
 evidence does not settle a question, we say so rather than picking the flattering number.
 
-> Sections 1.2–1.4 describe a planned methodology. Once experiments are run, we will separate
-> decisions supported by prior work from decisions supported by our own results.
+> **Reading this report.** Sections 1.2–1.5 were written before the experiments and state
+> what the literature suggested and what we expected to find. Everything from §2 onward
+> reports what actually happened. §7.3 scores the predictions against the results, and
+> §7.4 records the four places our own method was wrong and had to be fixed — including,
+> twice, a conclusion we had already written down.
 
 ---
 
