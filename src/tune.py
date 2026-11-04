@@ -33,6 +33,7 @@ Usage:   python tune.py --phase pilot --labels hdbscan_mcs100
 """
 
 import argparse
+import itertools
 import json
 import subprocess
 import sys
@@ -115,14 +116,49 @@ def best_of(rows, stage):
     return max(staged, key=lambda r: r["val_macro_f1"]) if staged else None
 
 
+def run_grid(common):
+    """Exhaustive Cartesian product of every grid.
+
+    The staged search assumes the factors are close to separable. The one pair where
+    that is known to be imperfect is learning rate and batch size, because the best
+    learning rate moves with batch size — so a staged run that settles lr at batch=16
+    and then switches to batch=32 can leave lr slightly stale. A grid has no such
+    assumption: it measures every combination, so interactions are visible rather than
+    assumed away.
+
+    The price is multiplicative. 4 learning rates x 3 batch sizes x 3 encoders x 3
+    seeds is 108 fine-tuning runs against the staged search's 10, and at full corpus
+    scale one run is roughly 52 CPU-hours.
+
+    This path is implemented and has not been run. It is here so the comparison is
+    concrete rather than hypothetical, and so the escalation from the staged search
+    is one flag rather than new code.
+    """
+    rows = []
+    combos = list(itertools.product(LR_GRID, BATCH_GRID, ENCODER_GRID, SEED_GRID))
+    print(f"\nGrid search — {len(combos)} configurations "
+          f"({len(LR_GRID)} lr x {len(BATCH_GRID)} batch x "
+          f"{len(ENCODER_GRID)} encoder x {len(SEED_GRID)} seed)")
+    for i, (lr, batch, encoder, seed) in enumerate(combos, 1):
+        print(f"\n[{i}/{len(combos)}]", end=" ")
+        res = run_one(encoder=encoder, lr=lr, batch=batch, seed=seed, **common)
+        if res:
+            rows.append({**row_of(res), "stage": "grid"})
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", choices=["pilot", "main"], default="pilot")
     ap.add_argument("--embed-model", choices=["minilm", "mpnet"], default="minilm")
     ap.add_argument("--labels", default="hdbscan_mcs100")
     ap.add_argument("--epochs", type=float, default=3)
+    ap.add_argument("--search", choices=["staged", "grid"], default="staged",
+                    help="staged resolves one factor at a time (10 distinct runs); "
+                         "grid is the full Cartesian product (108 runs)")
     ap.add_argument("--stages", default="lr,batch,encoder,seeds",
-                    help="comma-separated subset of lr,batch,encoder,seeds")
+                    help="comma-separated subset of lr,batch,encoder,seeds "
+                         "(staged search only)")
     ap.add_argument("--max-train", type=int, default=None)
     ap.add_argument("--dry-run", action="store_true",
                     help="print the commands and the total run count, train nothing")
@@ -137,7 +173,16 @@ def main():
     # Defaults carried forward between stages; each stage overwrites one of them.
     encoder, batch, lr, seed = "bert-base", 16, 2e-5, 42
 
-    if "lr" in stages:
+    if args.search == "grid":
+        rows = run_grid(common)
+        if args.dry_run:
+            n = (len(LR_GRID) * len(BATCH_GRID)
+                 * len(ENCODER_GRID) * len(SEED_GRID))
+            print(f"\n{n} training runs would be launched.")
+            return
+        stages = ["grid"]
+
+    if args.search == "staged" and "lr" in stages:
         print(f"\nStage 1 — learning rate (encoder={encoder}, batch={batch})")
         for value in LR_GRID:
             res = run_one(encoder=encoder, lr=value, batch=batch, seed=seed, **common)
@@ -148,7 +193,7 @@ def main():
             lr = winner["learning_rate"]
             print(f"  -> lr={lr:g} (val macro-F1 {winner['val_macro_f1']:.4f})")
 
-    if "batch" in stages:
+    if args.search == "staged" and "batch" in stages:
         print(f"\nStage 2 — batch size (lr={lr:g})")
         for value in BATCH_GRID:
             if value == batch and any(r["stage"] == "lr"
@@ -164,7 +209,7 @@ def main():
             batch = max(pool, key=lambda r: r["val_macro_f1"])["batch_size"]
             print(f"  -> batch={batch}")
 
-    if "encoder" in stages:
+    if args.search == "staged" and "encoder" in stages:
         print(f"\nStage 3 — encoder (lr={lr:g}, batch={batch})")
         for value in ENCODER_GRID:
             res = run_one(encoder=value, lr=lr, batch=batch, seed=seed, **common)
@@ -179,7 +224,7 @@ def main():
             }.items()}.get(winner["encoder"], encoder)
             print(f"  -> {encoder} (val macro-F1 {winner['val_macro_f1']:.4f})")
 
-    if "seeds" in stages:
+    if args.search == "staged" and "seeds" in stages:
         print(f"\nStage 4 — seed spread ({encoder}, lr={lr:g}, batch={batch})")
         for value in SEED_GRID:
             res = run_one(encoder=encoder, lr=lr, batch=batch, seed=value, **common)
@@ -198,7 +243,8 @@ def main():
         return
 
     df = pd.DataFrame(rows)
-    stem = f"tuning_{args.phase}_{args.labels}"
+    stem = (f"tuning_{args.phase}_{args.labels}"
+            + ("_grid" if args.search == "grid" else ""))
     df.to_csv(REPORTS / f"{stem}.csv", index=False)
 
     overall = df.loc[df["val_macro_f1"].idxmax()]
@@ -213,6 +259,7 @@ def main():
     summary = {
         "phase": args.phase,
         "labels": args.labels,
+        "search": args.search,
         "stages": stages,
         "n_runs": len(df),
         "selection_metric": "validation macro-F1; test is never used for selection",

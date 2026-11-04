@@ -876,9 +876,53 @@ honest follow-up is to re-run stage 1 at that batch size — two extra runs, not
 
 Random search (Bergstra & Bengio, JMLR 2012) is the other standard answer here and would
 be a defensible alternative: with most of the variance coming from one or two factors, it
-covers more distinct values per run than a grid. We chose the staged search because it
-yields an interpretable per-factor table rather than a scatter of configurations, which
-matters more when the budget is ten runs.
+covers more distinct values per run than a grid. We chose the staged search as the default
+because it yields an interpretable per-factor table rather than a scatter of
+configurations, which matters more when the budget is ten runs.
+
+#### Both searches are implemented
+
+`tune.py` carries the full grid as well, behind one flag, so the escalation is a
+configuration change rather than new code:
+
+```bash
+python src/tune.py --phase main --labels kmeans_k8_emb --search staged --dry-run  #  13 commands, 10 distinct runs
+python src/tune.py --phase main --labels kmeans_k8_emb --search grid   --dry-run  # 108 runs
+```
+
+The grid makes no separability assumption at all — it measures every combination of
+learning rate, batch size, encoder and seed, so lr × batch interactions are observed
+rather than assumed away. Both paths share the same runner, the same
+validation-macro-F1 selection, the same per-run JSON and the same results table.
+
+**Neither has been run.** The grid is 108 fine-tuning runs; at roughly 52 CPU-hours per
+run at full corpus scale, it is a GPU-cluster workload, not a laptop one. It is in the
+repository so that the comparison between the two designs is concrete, and so that the
+step from ten runs to an exhaustive search costs a flag rather than an afternoon.
+
+#### The hyperparameters actually used
+
+The one configuration that was run (§6.3) uses **learning rate 2e-5, batch size 16, 3
+epochs, 256 tokens, AdamW with weight decay 0.01**. These are the fine-tuning defaults
+recommended in the original BERT paper (Devlin et al., 2019, Appendix A.3: batch ∈ {16,
+32}, learning rate ∈ {5e-5, 3e-5, 2e-5}, epochs ∈ {2, 3, 4}), so they are a published
+starting point rather than an arbitrary pick.
+
+They also sit inside the search space of the reference paper, which tuned with Optuna
+over log-uniform learning rate in [1e-6, 1e-4], batch size in {8, 16, 32} and 2–7 epochs.
+Two caveats on that comparison, both worth stating plainly:
+
+- **Arcan reports the search space but never the selected values**, so "the same
+  hyperparameters as the paper" is not a claim anyone can make from the paper — including
+  us. What can be said is that our configuration lies within the range they searched.
+- **We deliberately differ on sequence length.** They truncate at 128 tokens; we use 256,
+  because our own EDA shows 256 fits 67.2% of abstracts whole against 20.5% at 128 (§2).
+  That is a measured decision, not an inherited one.
+
+**Future work.** The honest next step is to run the staged search, and then the full grid
+if the stage-2 winner moves off batch=16 — the one place the staged design's separability
+assumption is weakest. Until that compute exists, the reported transformer number is a
+single configuration and is labelled as such throughout.
 
 ### 6.2 Selection discipline
 
@@ -897,7 +941,8 @@ produced it.
 
 ### 6.3 Results
 
-**The staged search has not been run.** It needs a GPU (§6.4). What this section reports is
+**Neither search has been run.** Both need a GPU (§6.4): the staged design is 10 distinct
+fine-tuning runs, the full grid is 108. What this section reports is
 a single fine-tune, run to completion on CPU so that the transformer figure here is
 measured rather than projected — one configuration, one seed, at pilot scale:
 

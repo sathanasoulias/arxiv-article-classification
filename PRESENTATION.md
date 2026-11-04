@@ -491,7 +491,7 @@ stronger: three independent samples agreeing, rather than one curve's shape.
 
 **The search design, if asked.** A full grid over learning rate × batch size × encoder ×
 seed is 108 runs. Resolving each factor in turn and carrying the winner forward gives the
-same decisions in **13**:
+same decisions in **10**:
 
 | Stage | Varies | Runs |
 |---|---|---|
@@ -502,6 +502,29 @@ same decisions in **13**:
 
 Learning rate first because it dominates. Stage 4 is not tuning — it re-runs the winner
 under three seeds so the headline carries a spread.
+
+**Both searches are in the repo.** `tune.py --search staged` is the 10-run design;
+`tune.py --search grid` is the full 108-run Cartesian product, which makes no
+separability assumption and measures lr × batch interactions directly. Same runner, same
+selection rule, same outputs. Neither has been run — at ~52 CPU-hours per run at full
+scale, the grid is a cluster workload.
+
+**The hyperparameters we did use:** lr 2e-5, batch 16, 3 epochs, 256 tokens — the
+defaults recommended in the BERT paper (Devlin et al. 2019, Appendix A.3), and inside the
+range the reference paper searched with Optuna. Say "published defaults", not "we picked
+something".
+
+**If asked — "why not just run the grid?"**
+108 runs. We implemented it so the escalation is one flag, and ran one configuration to
+validate the harness. With GPU budget, the order is: staged search first, then the grid
+if the batch-size winner moves off 16 — which is the only place the staged design's
+assumption is weak.
+
+**If asked — "did you use the same hyperparameters as the paper?"**
+Ours fall inside their search space, but the paper tunes with Optuna and **never reports
+the selected values**, so nobody can match them exactly from what is published. We differ
+deliberately on one axis: they truncate at 128 tokens, we use 256, because our EDA shows
+256 fits 67.2% of abstracts whole against 20.5% at 128.
 
 ---
 

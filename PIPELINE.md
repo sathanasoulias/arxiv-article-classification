@@ -558,6 +558,19 @@ Stage 4 is not tuning: it re-runs the winner under three seeds so the headline n
 carries a spread. Arcan reported no error bars at all; a single fine-tuning run is not
 a measurement.
 
+**The full grid is also implemented.** `tune.py --search grid` runs the complete
+4 x 3 x 3 x 3 Cartesian product — 108 fine-tuning runs — making no separability
+assumption, so learning-rate x batch-size interactions are measured rather than assumed
+away. It shares the staged search's runner, selection rule and outputs. Neither has been
+run; at roughly 52 CPU-hours per run at full corpus scale the grid is a cluster workload.
+
+**Hyperparameters used in the one run that happened** (Phase 8): lr 2e-5, batch 16, 3
+epochs, 256 tokens, AdamW with weight decay 0.01 — the defaults recommended in Devlin et
+al. (2019, Appendix A.3), and within the Optuna search space Arcan used. Arcan reports
+that space but not the values it selected, so the configurations cannot be matched
+exactly. We differ deliberately on sequence length: 256 tokens against their 128, because
+256 fits 67.2% of abstracts whole and 128 fits 20.5% (Phase 1).
+
 **To run it:** upload the Phase 9 parquet to Colab, open the notebook, commit the two
 result files it writes.
 
