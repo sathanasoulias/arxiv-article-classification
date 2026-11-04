@@ -401,7 +401,7 @@ soft.
 
 **State the scope before they ask.** This ran on the **pilot** (7,022 training abstracts),
 one configuration, one seed, on CPU — 5h49m. A full-scale run projects to ~52 hours on
-CPU and the thirteen-run search to roughly four weeks, which is why it needs a GPU.
+CPU and the ten-run search to roughly three weeks, which is why it needs a GPU.
 
 **If asked — "so does BERT beat the baseline?"**
 0.9013 against 0.8834 on the pilot — a win of 1.8 points, from a single seed. We score
@@ -470,7 +470,7 @@ stronger: three independent samples agreeing, rather than one curve's shape.
 **Headline:** What we would do next, and what we are not claiming.
 
 **Not run:**
-- **The hyperparameter search.** 13 runs, specified in `tune.py` with the staged design
+- **The hyperparameter search.** 10 distinct runs, specified in `tune.py` with the staged design
   below, needs a GPU. This is the clearest gap against the brief.
 - **MPNet embeddings at scale** — implemented, configured, not run. Prior work suggests
   roughly +0.03 ARI.
@@ -554,4 +554,4 @@ three times we got it wrong first.
 | tf-idf + SVM | 0.9005 val / 0.8970 test |
 | BERT (pilot) | 0.9013 val / 0.9008 test |
 | BERT training time | 349.5 min CPU |
-| Full-scale projection | ~52 h/run, ~4 weeks for 13 runs |
+| Full-scale projection | ~52 h/run, ~3 weeks for 10 runs |

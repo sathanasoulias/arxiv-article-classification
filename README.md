@@ -237,7 +237,7 @@ Neither is necessary, and we cut both deliberately:
 - A 10,000-paper pilot, drawn as a subsample of the main sample, to validate every step cheaply
 - Embeddings computed once and cached
 - A staged hyperparameter search — learning rate, then batch size, then encoder, then seeds —
-  which costs 13 runs instead of 108
+  which costs 10 distinct runs instead of 108
 
 ## 1.5 What we expect to find
 
@@ -839,15 +839,21 @@ The obvious search is a grid over learning rate × batch size × encoder × seed
 close to independent, so most of the grid re-measures what the first few cells already
 established.
 
-Instead each factor is resolved in turn and the winner carried forward — **13 runs**
-instead of 108, for the same decisions:
+Instead each factor is resolved in turn and the winner carried forward — a **staged**
+or coordinate-wise search, **10 distinct runs** instead of 108, for the same decisions:
 
-| Stage | Varies | Values | Runs |
+| Stage | Varies | Values | New runs |
 |---|---|---|---|
 | 1 | learning rate | 1e-5, 2e-5, 3e-5, 5e-5 | 4 |
-| 2 | batch size | 8, 16, 32 | 2 (16 already measured) |
+| 2 | batch size | 8, 16, 32 | 2 (16 already measured in stage 1) |
 | 3 | encoder | bert-base, DistilBERT, SciBERT | 2 (bert-base already measured) |
 | 4 | seeds | 42, 1337, 2024 | 2 (42 already measured) |
+| | | | **10** |
+
+`tune.py --dry-run` prints 13 commands rather than 10, because the winning configuration
+is re-issued at the head of each later stage. Those four invocations share one tag, and
+`run_one()` serves the repeats from `reports/classifier_<tag>.json` instead of retraining
+— so the printed command count overstates the GPU cost by three runs.
 
 Learning rate goes first because it dominates fine-tuning outcomes. SciBERT is included
 despite Arcan finding its *embeddings* were the worst of four for clustering — embedding
@@ -857,6 +863,22 @@ run.
 Stage 4 is not tuning. It re-runs the winning configuration under three seeds so the
 headline number carries a spread instead of implying a precision it does not have. Arcan
 reported no error bars at all; a single fine-tuning run is not a measurement.
+
+**What a staged search gives up.** It assumes the factors are close to separable, and
+learning rate and batch size are the one pair here where that is known to be imperfect —
+the linear-scaling heuristic says the best learning rate moves with batch size, so
+resolving lr at batch=16 and then switching to batch=32 can leave lr slightly stale. A
+full grid would catch that; this design does not revisit stage 1 afterwards. Two things
+limit the damage: the batch range is narrow (8–32, well under an order of magnitude), and
+every run is written to its own JSON, so the interaction is visible in the results table
+even though the search did not optimise over it. If the stage-2 winner is not 16, the
+honest follow-up is to re-run stage 1 at that batch size — two extra runs, not a new grid.
+
+Random search (Bergstra & Bengio, JMLR 2012) is the other standard answer here and would
+be a defensible alternative: with most of the variance coming from one or two factors, it
+covers more distinct values per run than a grid. We chose the staged search because it
+yields an interpretable per-factor table rather than a scatter of configurations, which
+matters more when the budget is ten runs.
 
 ### 6.2 Selection discipline
 
@@ -922,7 +944,7 @@ learning rate, batch size, encoder and seed spread are all still unmeasured.
 
 Extrapolating from a measured CPU run on this machine, one fine-tuning run over the
 105,000 training abstracts at 256 tokens would take about **52 hours**, and the
-thirteen-run search roughly **four weeks**. The same search on a T4 is a couple of
+ten-run search roughly **three weeks**. The same search on a T4 is a couple of
 hours. This is not a CPU workload.
 
 The split is deliberate. Everything that defines the experiment — sampling, splitting,

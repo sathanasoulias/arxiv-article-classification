@@ -464,7 +464,7 @@ reported, never consulted during training.
 **Scope — this is the honest limitation of the phase.** It ran on the **pilot**
 (7,022 training abstracts), not the main corpus, and on **one configuration with one
 seed**. A measured CPU run projects to ~52 hours for a single full-scale run and roughly
-four weeks for the thirteen-run search, which is why Phase 10 needs a GPU. This run
+three weeks for the ten-run search, which is why Phase 10 needs a GPU. This run
 exists so the report carries a real transformer number rather than a projection.
 
 **Outputs:** `reports/classifier_pilot_bertbase_k8_cpu.json` (hyperparameters,
@@ -541,7 +541,7 @@ sha256 `71568b1c134fef65`, 150,000 abstracts, 8 categories, 0 noise.
 
 A full grid over learning rate × batch size × encoder × seed is 4 × 3 × 3 × 3 = **108
 runs**, and almost all of it re-measures what the first few cells established. Instead
-each factor is resolved in turn and the winner carried forward — **13 runs** for the
+each factor is resolved in turn and the winner carried forward — **10 distinct runs** for the
 same decisions:
 
 | Stage | Varies | Values | Runs |
