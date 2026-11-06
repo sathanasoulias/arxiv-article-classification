@@ -400,7 +400,7 @@ not making random mistakes — it is uncertain precisely where the taxonomy is g
 soft.
 
 **State the scope before they ask.** This ran on the **pilot** (7,022 training abstracts),
-one configuration, one seed, on CPU — 5h49m. A full-scale run projects to ~52 hours on
+one configuration, one seed, on CPU — 5h49m. A full-scale run projects to ~87 hours on
 CPU and the ten-run search to roughly three weeks, which is why it needs a GPU.
 
 **If asked — "so does BERT beat the baseline?"**
@@ -506,7 +506,7 @@ under three seeds so the headline carries a spread.
 **Both searches are in the repo.** `tune.py --search staged` is the 10-run design;
 `tune.py --search grid` is the full 108-run Cartesian product, which makes no
 separability assumption and measures lr × batch interactions directly. Same runner, same
-selection rule, same outputs. Neither has been run — at ~52 CPU-hours per run at full
+selection rule, same outputs. Neither has been run — at ~87 CPU-hours per run at full
 scale, the grid is a cluster workload.
 
 **The hyperparameters we did use:** lr 2e-5, batch 16, 3 epochs, 256 tokens — the
@@ -577,4 +577,4 @@ three times we got it wrong first.
 | tf-idf + SVM | 0.9005 val / 0.8970 test |
 | BERT (pilot) | 0.9013 val / 0.9008 test |
 | BERT training time | 349.5 min CPU |
-| Full-scale projection | ~52 h/run, ~3 weeks for 10 runs |
+| Full-scale projection | ~87 h/run on CPU, ~3 h on a T4 |

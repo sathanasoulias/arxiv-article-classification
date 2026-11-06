@@ -459,7 +459,8 @@ fits 67.2% of abstracts whole and 128 fits 20.5% (§3).
 
 ### 6.3 Results
 
-**Neither search has been run.** Both need a GPU: a full-scale run is roughly 52 CPU-hours,
+**Neither search has been run.** Both need a GPU. Scaling the measured pilot run — 15.9 s/step × 19,688 steps — puts a
+single full-scale fine-tune at about **87 CPU-hours** before evaluation,
 so the staged search is about three weeks on this machine and the grid far longer.
 
 What was run is **one configuration at pilot scale**, so that this section reports a
@@ -470,9 +471,33 @@ measured transformer number rather than a projection:
 | tf-idf + LinearSVC | pilot (7,022 train) | 0.8834 | 0.8780 |
 | **`bert-base-uncased`, fine-tuned** | pilot (7,022 train) | **0.9013** | **0.9008** |
 
+Both rows use **identical data** — the same 7,022 / 1,544 / 1,434 split and the same label
+file — so this is the one valid head-to-head comparison in the report. The 0.9005 in §5.2 is
+a separate, larger measurement and is *not* comparable with either.
+
 349.5 minutes on CPU. Per-epoch validation macro-F1: 0.8539 → 0.8954 → 0.9013, so the run
-converged. Per-class F1 runs 0.86–0.96 — **no category collapses** — and macro and weighted
-scores sit within 0.004, so the class weighting worked.
+converged.
+
+#### The score is not an imbalance artefact
+
+A high score on an unbalanced problem usually deserves suspicion, so the check is recorded
+rather than assumed. All eight categories appear in all three splits, and the largest holds
+under 22% of any of them:
+
+| Class | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| train | 1,385 | 748 | 712 | 675 | 985 | 578 | 854 | 1,085 |
+| test | 314 | 150 | 130 | 143 | 169 | 134 | 189 | 205 |
+| **test F1** | 0.881 | 0.863 | 0.892 | **0.962** | 0.892 | 0.921 | 0.920 | 0.877 |
+
+Per-class F1 spans 0.86–0.96 — **no category collapses**. Macro (0.9008) and weighted
+(0.8976) sit within 0.004 of each other, which is the signature of even per-class
+performance; had one class been carrying the result they would diverge sharply.
+
+The metric rules the failure out by construction in any case. Macro-F1 weights every
+category equally, so a model exploiting the largest class scores near zero on the other
+seven — which is exactly what the majority baseline does on this data: **21.2% accuracy,
+0.0437 macro-F1**.
 
 ![Confusion matrix](reports/figures/confusion_matrix_pilot.png)
 

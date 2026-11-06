@@ -463,7 +463,7 @@ reported, never consulted during training.
 
 **Scope — this is the honest limitation of the phase.** It ran on the **pilot**
 (7,022 training abstracts), not the main corpus, and on **one configuration with one
-seed**. A measured CPU run projects to ~52 hours for a single full-scale run and roughly
+seed**. The measured pilot run scales to ~87 hours for a single full-scale run and roughly
 three weeks for the ten-run search, which is why Phase 10 needs a GPU. This run
 exists so the report carries a real transformer number rather than a projection.
 
@@ -562,7 +562,7 @@ a measurement.
 4 x 3 x 3 x 3 Cartesian product — 108 fine-tuning runs — making no separability
 assumption, so learning-rate x batch-size interactions are measured rather than assumed
 away. It shares the staged search's runner, selection rule and outputs. Neither has been
-run; at roughly 52 CPU-hours per run at full corpus scale the grid is a cluster workload.
+run; at roughly 87 CPU-hours per run at full corpus scale the grid is a cluster workload.
 
 **Hyperparameters used in the one run that happened** (Phase 8): lr 2e-5, batch 16, 3
 epochs, 256 tokens, AdamW with weight decay 0.01 — the defaults recommended in Devlin et
