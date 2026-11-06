@@ -393,14 +393,15 @@ Baselines on the 150,000-paper corpus:
 |---|---|---|---|
 | Majority class | nothing | 0.0404 | 0.1929 |
 | **TF-IDF + LinearSVC** | word 1–2 grams, char 3–5 grams | **0.9005** | 0.8971 |
-| Frozen embeddings + logistic regression | the clustering's own space | *0.9808* | *0.9805* |
 
 The first row is the argument for macro-F1 in one line: 19.3% accuracy, 0.0404 macro-F1.
 
-The third row is **diagnostic and near-tautological**, reported so it cannot be mistaken for
-a result. A KMeans partition is a Voronoi tessellation of the embedding space, so a linear
-model in that space recovers it almost perfectly by construction. Only the TF-IDF and
-transformer rows speak to the task.
+`baseline.py` also fits logistic regression on the frozen embeddings. That number is
+**not reported as a result**, because it cannot be one: a KMeans partition is a Voronoi
+tessellation of the embedding space, so a linear model in that same space recovers it
+almost perfectly by construction. It measures how cleanly the clustering cut the space,
+not whether the categories can be recovered from text. Only TF-IDF and the transformer
+answer that.
 
 **0.9005 is the number to beat, and it is demanding** — the eight categories are already
 largely separable by vocabulary alone, which is itself evidence they are coherent.

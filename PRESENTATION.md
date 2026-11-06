@@ -355,20 +355,20 @@ If we scored 0.95 against arXiv we would simply have rediscovered arXiv.
 |---|---|---|
 | majority class | 0.0404 | 0.1929 |
 | tf-idf + LinearSVC | **0.9005** | 0.8971 |
-| embeddings + logreg *(diagnostic)* | 0.9808 | 0.9805 |
 
 **Speaker notes.** The first row makes the metric argument in one line: 19% accuracy,
 0.04 macro-F1. That gap is why macro-F1 is the headline everywhere.
 
-**Flag the third row before anyone asks.** It is *diagnostic, not competitive, and close
-to tautological.* The clusters were defined in that embedding space, and a KMeans
-partition is a Voronoi tessellation of it — so the task is linearly separable there by
+**Do not put the embeddings-plus-logistic-regression number on a slide.** `baseline.py`
+computes it and it scores ~0.98, which looks like the best result in the project and is
+not a result at all: the clusters were *defined* in that embedding space, and a KMeans
+partition is a Voronoi tessellation of it, so the task is linearly separable there by
 construction. It measures how cleanly the clustering cut the space, not whether the
-categories generalise from raw text. Only the tf-idf and transformer numbers speak to
-that.
+categories generalise from raw text.
 
-Volunteering this is worth more than the number itself. It is exactly the kind of
-inflated result a reviewer is looking to catch.
+**If someone finds it** — in the repo, the JSON, or `baseline.py` — that is the answer,
+and giving it quickly is worth more than the number ever was. The report says the same in
+§5.2.
 
 ---
 
