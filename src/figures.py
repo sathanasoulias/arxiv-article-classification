@@ -35,7 +35,7 @@ import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
 
 from cluster import UMAP_DIMS
-from config import FIGURES, REPORTS, SEED, work_path
+from config import FIGURES, REPORTS, SEED, SPLITS_DIR, work_path
 
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
@@ -737,3 +737,78 @@ def fig_stability_consensus(model="minilm", space="embedding"):
     save(fig, f"stability_consensus_{space}.png",
          f"Shaded: k stable in every sweep ({', '.join(str(k) for k in shared)}). "
          f"Lower bound shown, which is what the rule tests. No arXiv label is consulted.")
+
+
+def fig_sampling():
+    """How 3.2M records became 150,000, and proof the sample kept the real proportions.
+
+    Two claims in section 3 are easy to assert and easy to doubt: that the filters remove
+    what we say they remove, and that stratified sampling preserved the archive mix
+    rather than flattening it. Both are checkable, so they are plotted rather than
+    claimed.
+    """
+    summary = load_json("preprocess_summary.json")
+    year_mix = load_json("year_mix.json")
+    if not summary or not year_mix:
+        print("  skip sampling figure: preprocess_summary or year_mix missing")
+        return
+
+    main = summary["main"]
+    stages = [("arXiv snapshot", main["scanned"]),
+              (f"2016+, \u2265{summary['min_abstract_words']} words", main["eligible_after_filters"]),
+              ("stratified sample", main["n_papers"])]
+
+    # Archive shares in the eligible population, against the drawn sample.
+    pop = {}
+    for year, counts in year_mix["by_year_archive"].items():
+        if int(year) >= summary["year_min"]:
+            for archive, n in counts.items():
+                pop[archive] = pop.get(archive, 0) + n
+    pop = pd.Series(pop).sort_values(ascending=False)
+    ids = pd.read_csv(SPLITS_DIR / "main_ids.csv.gz", dtype={"id": str})
+    samp = ids["primary_archive"].value_counts()
+    share = pd.DataFrame({"pop": 100 * pop / pop.sum(),
+                          "samp": 100 * samp / samp.sum()}).fillna(0)
+    share = share.sort_values("pop", ascending=False)
+
+    fig, (ax1, ax2) = figure(12.4, 5.2, n=2, gridspec_kw={"width_ratios": [1, 1.5]})
+
+    # --- Panel A: the funnel -------------------------------------------------------
+    y = range(len(stages))
+    widths = [n for _, n in stages]
+    ax1.barh(list(y), widths, color=[CATEGORICAL[0], CATEGORICAL[0], CATEGORICAL[2]],
+             height=0.52, zorder=3)
+    for i, (label, n) in enumerate(stages):
+        ax1.text(n * 1.02, i, f"{n:,}", va="center", fontsize=10,
+                 color=INK, fontweight="bold")
+        pct = 100 * n / stages[0][1]
+        if i:
+            ax1.text(n * 1.02, i - 0.3, f"{pct:.1f}% of the snapshot",
+                     va="center", fontsize=8.5, color=INK_2)
+    ax1.set_yticks(list(y), [label for label, _ in stages], fontsize=9.5)
+    ax1.invert_yaxis()
+    ax1.set_xlim(0, stages[0][1] * 1.42)
+    ax1.set_xticks([])
+    style(ax1, "From snapshot to sample", grid_axis="x")
+    ax1.grid(False)
+    for side in ("left", "bottom"):
+        ax1.spines[side].set_visible(False)
+
+    # --- Panel B: stratification held -----------------------------------------------
+    x = range(len(share))
+    ax2.bar([v - 0.21 for v in x], share["pop"], width=0.42,
+            color=INK_MUTED, zorder=3, label="eligible population")
+    ax2.bar([v + 0.21 for v in x], share["samp"], width=0.42,
+            color=CATEGORICAL[0], zorder=3, label="drawn sample")
+    ax2.set_xticks(list(x), share.index, rotation=55, ha="right", fontsize=8.5)
+    ax2.legend(frameon=False, fontsize=9, loc="upper right")
+    style(ax2, "Stratified sampling preserved the archive mix",
+          ylabel="share of corpus (%)")
+
+    worst = (share["samp"] - share["pop"]).abs().max()
+    save(fig, "sampling_funnel.png",
+         f"Left: two filters reduce 3.2M records to the sampling frame. Right: every one "
+         f"of the {len(share)} archives is drawn in proportion \u2014 largest deviation "
+         f"{worst:.3f} percentage points. Proportions are preserved deliberately: "
+         f"rebalancing would make the discovered number of categories an artefact of "
+         f"our sampling.")

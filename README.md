@@ -1,298 +1,385 @@
-# Research Article Classification — arXiv
+# Research Article Classification on arXiv
 
-Sorting research papers into categories using only their abstracts, when nobody tells us how many
-categories there should be. Data: the public
-[arXiv dataset](https://www.kaggle.com/datasets/Cornell-University/arxiv) from Cornell University
-(one file, 5.65 GB, about 2.7 million papers).
+**Discovering how many categories exist in a corpus of scientific abstracts, and training a
+classifier to predict them.**
+
+Data: the public [arXiv metadata snapshot](https://www.kaggle.com/datasets/Cornell-University/arxiv)
+from Cornell University — 3,224,635 records, 5.65 GB, version 309.
 
 ---
 
-# 1. Literature Review and Methodological Rationale
+### Summary
 
-## 1.1 What the problem actually is
+The number of categories in this corpus is unknown, so it has to be discovered rather than
+assumed. We encode 150,000 abstracts with a frozen sentence-transformer, cluster them, and
+choose the number of categories by **reproducibility**: a grouping counts only if an
+independent sample of the same corpus recovers it. Measured across three independent sweeps
+and against a structureless null, **eight categories** survive as the most granular
+reproducible taxonomy. No arXiv label is consulted in reaching that number.
 
-The task sounds like ordinary text classification, but it is not. In ordinary classification you
-are given a list of categories and you train a model to pick one. Here the number of categories is
-unknown, and finding the right number is part of the job.
+The resulting taxonomy is structurally the inverse of arXiv's — it splits computer science
+into three and mathematics into two while covering thirteen physics archives with three —
+and it contains one category arXiv has no archive for: **large-language-model research,
+11.9% of the corpus**. A classifier trained on arXiv's own labels could not have found it.
 
-That makes this two problems in one:
+The discovered categories are learnable from raw text: TF-IDF with a linear SVM reaches
+**0.9005 macro-F1** on 150,000 abstracts, and a fine-tuned `bert-base` reaches **0.9013** at
+pilot scale. The hyperparameter search is implemented and was not run; §6.3 says so.
 
-- **An open question:** how many categories are there, and what are they?
-- **A normal machine-learning question:** can a model read a new abstract and assign it to a
-  category?
+### Contents
 
-The arXiv data does come with its own subject labels, like `cs.LG` or `math.PR`. These are useful,
-but we should not treat them as the single correct answer, for two reasons. First, authors choose
-their own labels, so they are inconsistent. Second, most papers carry several labels at once, so
-there is no single "true" category per paper.
+| | Section |
+|---|---|
+| **1** | [Problem, background and approach](#1-problem-background-and-approach) |
+| **2** | [Exploratory data analysis](#2-exploratory-data-analysis) |
+| **3** | [Preprocessing](#3-preprocessing) |
+| **4** | [Model training](#4-model-training) |
+| **5** | [Evaluation](#5-evaluation) |
+| **6** | [Hyperparameter tuning and model selection](#6-hyperparameter-tuning-and-model-selection) |
+| **7** | [Conclusions](#7-conclusions) |
 
-We therefore split the work into four parts and study each one separately:
+Two companion documents: [PIPELINE.md](PIPELINE.md) traces every phase with its parameters
+and outputs; [PRESENTATION.md](PRESENTATION.md) is slide-by-slide speaking notes.
 
-1. **Representation** — how do we turn an abstract into numbers a computer can compare?
-2. **Discovery** — how do we find natural groups of papers without deciding the groups in advance?
-3. **Choosing the number of groups** — how do we pick a number and defend it?
-4. **Classification** — how do we train a Hugging Face model to label new, unseen abstracts?
+---
 
-Splitting it this way means each decision gets tested on its own, instead of guessing a whole
-pipeline up front and hoping it works.
+# 1. Problem, background and approach
 
-## 1.2 What the literature says
+## 1.1 Why this is not ordinary text classification
 
-We read the relevant work before choosing a method. Here is what we found and what we took from
-each paper.
+In ordinary text classification you are handed a list of categories and you train a model to
+pick one. Here **the number of categories is unknown, and determining it is part of the
+task.** That single difference reshapes everything downstream.
 
-### The closest existing study
+It makes this two problems rather than one:
+
+- **An open question** — how many categories are there, and what are they?
+- **A supervised question** — can a model read an unseen abstract and assign it correctly?
+
+The arXiv data does ship with subject labels such as `cs.LG` or `math.PR`, and the obvious
+shortcut is to train against them. We do not, for three reasons.
+
+**Authors choose their own labels**, so they are applied inconsistently across a corpus
+spanning three decades and thousands of submitters.
+
+**Most papers carry several labels at once.** In this snapshot **52.7%** of sampled papers
+have more than one subject label and **17.3%** span more than one top-level group, so "the"
+category of a paper frequently does not exist. Any hard partition is being compared against
+a reference that is itself soft.
+
+**The taxonomy is older than parts of the field it describes.** arXiv has no archive for
+large-language-model research; that work is filed under general `cs` beside operating
+systems and computational geometry. A method anchored to arXiv's labels is structurally
+incapable of discovering a category arXiv lacks — and §4.4 shows this corpus contains one.
+
+So the work splits into four questions, each tested separately:
+
+| | Question | Why it is separable |
+|---|---|---|
+| 1 | **Representation** — how is an abstract turned into numbers? | Encoder choice is independent of what you do with the vectors |
+| 2 | **Discovery** — what natural groups exist? | Algorithm choice is independent of how many groups you keep |
+| 3 | **Cardinality** — how many groups, and how is that defended? | The assignment's central question |
+| 4 | **Classification** — can a model label unseen abstracts? | Measured on a held-out split, within one label set |
+
+Treating them separately means each decision is tested on its own evidence, rather than
+bundled into one pipeline that either works or does not.
+
+## 1.2 Background
+
+This section covers the methods the project rests on. It is deliberately general; the
+specific prior study closest to our task is discussed separately in §1.3.
+
+### Representing text as vectors
+
+The classical representation is **TF-IDF** over a bag of words — cheap, strong on topical
+tasks, and blind to word order and synonymy. It remains a serious baseline, and we use it as
+one (§5.2).
+
+**BERT** (Devlin et al., 2019, [arXiv:1810.04805](https://arxiv.org/abs/1810.04805))
+replaced this for most tasks: a transformer pretrained with masked-language modelling,
+producing contextual representations that are fine-tuned per task. But BERT has a known
+weakness for *comparing* texts. Its `[CLS]` vector was never trained to place similar
+documents near each other, and using it directly as a sentence embedding performs poorly on
+similarity tasks.
+
+**Sentence-BERT** (Reimers & Gurevych, 2019,
+[arXiv:1908.10084](https://arxiv.org/abs/1908.10084)) addresses this directly, training BERT
+in a siamese configuration so that cosine distance between outputs is meaningful. This is
+the family we encode with, because clustering is entirely a question of distances.
+
+Science-specific encoders exist. **SciBERT** (Beltagy et al., 2019,
+[arXiv:1903.10676](https://arxiv.org/abs/1903.10676)) pretrains on a scientific corpus with
+its own vocabulary; **SPECTER** (Cohan et al., 2020,
+[arXiv:2004.07180](https://arxiv.org/abs/2004.07180)) trains on the citation graph so that
+co-cited papers land close together. **SciRepEval** (Singh et al., 2023,
+[arXiv:2211.13308](https://arxiv.org/abs/2211.13308)) then evaluated such embeddings across
+24 tasks and found no single representation wins everywhere — the best choice depends on the
+task.
+
+> **What we take from this.** Use an encoder trained for similarity rather than raw BERT,
+> and do not assume the domain-specific model is better. Test it.
+
+### Grouping without labels
+
+Clustering algorithms divide along a line that matters a great deal here: whether the number
+of groups is an input or an output.
+
+**Partitional methods take k as input.** **KMeans** minimises within-cluster variance and
+assigns every point, producing a Voronoi tessellation of the space — which implies convex,
+roughly isotropic clusters of comparable size. **Gaussian mixture models** relax this to
+soft, elliptical assignments. Both require k to be decided elsewhere, which is precisely the
+thing we do not know.
+
+**Density methods infer the number themselves.** **DBSCAN** (Ester et al., 1996) grows
+clusters from dense regions and labels sparse points as noise, finding arbitrarily shaped
+clusters without being told how many. **HDBSCAN** (Campello et al., 2013) extends it across
+density scales, removing DBSCAN's single global `eps`. The appeal here is obvious: an
+algorithm that answers the assignment's central question by itself.
+
+The catch is that density estimation degrades badly in high dimensions — distances
+concentrate and density becomes nearly uniform. The standard remedy is to reduce first,
+usually with **UMAP** (McInnes et al., 2018,
+[arXiv:1802.03426](https://arxiv.org/abs/1802.03426)), which preserves local neighbourhood
+structure better than PCA for this purpose.
+
+**BERTopic** (Grootendorst, 2022, [arXiv:2203.05794](https://arxiv.org/abs/2203.05794))
+packages exactly that sequence — embed, UMAP, HDBSCAN — and then describes each cluster with
+**class-based TF-IDF**, which aggregates a cluster into a single pseudo-document so the
+terms that distinguish it surface instead of the terms common to every abstract. It is the
+modern successor to **LDA** (Blei et al., 2003) for topic discovery, and we use its c-TF-IDF
+formulation to make clusters readable (§4.4).
+
+> **What we take from this.** UMAP before density clustering, and c-TF-IDF for
+> interpretation. But published BERTopic results also carry a warning: reported topic counts
+> vary enormously on the same data, with cases producing thousands of topics where humans
+> labelled a handful, and a large share of documents dumped into the noise bin. We therefore
+> never report an HDBSCAN cluster count as *the* answer, and always report the noise
+> fraction beside it.
+
+### Choosing the number of groups
+
+This is the hard part, and the literature offers two families.
+
+**Internal validity indices** score a partition on its geometry. The **silhouette**
+coefficient (Rousseeuw, 1987) compares within-cluster distance to nearest-other-cluster
+distance; **DBCV** (Moulavi et al., 2014) is its density-based analogue, built for the
+non-convex clusters where silhouette is invalid. The usual recipe is to sweep k and keep the
+optimum.
+
+Their weakness is that they measure *shape*, not *correctness*. In a continuous embedding
+space the most compact partition is often a degenerate one, and §4.2 shows exactly that
+happening here — both indices peak on solutions where a single cluster holds most of the
+corpus.
+
+**Stability selection** asks a different question: *is the grouping reproducible?* If the
+data genuinely contains k groups, clustering two independent samples should recover the same
+groups; if k is wrong, the algorithm must invent boundaries, and invented boundaries fall
+differently each time. The approach originates with **Ben-Hur, Elisseeff & Guyon (2002)**,
+who introduced the subsample-pair estimator, and **Lange, Roth, Braun & Buhmann (2004)**,
+*Stability-Based Validation of Clustering Solutions*, Neural Computation 16(6):1299–1323.
+**von Luxburg (2010)** surveys the method, including where it fails.
+
+Crucially, stability needs **no labels at all** — which is what makes it usable when the
+number of categories is unknown by definition.
+
+> **What we take from this.** Stability is our selection criterion. Internal indices are
+> computed and reported, but as evidence of *why* they cannot be used here, not as a
+> contribution to the decision.
+
+### Comparing two groupings
+
+Both stability selection and after-the-fact validation need a way to compare partitions. The
+**Rand index** (Rand, 1971) counts the pairs of items two partitions agree about; the
+**Adjusted Rand Index** (Hubert & Arabie, 1985) corrects it for chance so that random
+agreement scores zero. **Normalised mutual information** is the information-theoretic
+equivalent, and **AMI** its chance-corrected form (Vinh, Epps & Bailey, JMLR 2010).
+
+The distinction matters here: **raw NMI drifts upward as the number of clusters grows**, so
+using it while choosing k would quietly reward splitting. We use ARI and AMI throughout.
+
+### Evaluating an imbalanced classifier
+
+Our categories differ in size by more than a factor of two, and the underlying archives by a
+factor of 152. **Accuracy is the wrong headline** under that imbalance, being dominated by
+the largest classes. We report **macro-F1**, which weights every category equally. §5.2
+makes the case with our own measurements: a majority-class baseline reaches 19.3% accuracy
+and 0.0404 macro-F1 on the same data.
+
+### The three papers closest to our implementation
+
+The brief asks for three articles referencing the implementation used. These are the three
+whose methods appear directly in our code, rather than the three most similar in topic:
+
+| # | Paper | What we implement from it |
+|---|---|---|
+| 1 | **Reimers & Gurevych (2019)** — Sentence-BERT | The representation: a similarity-trained encoder, `all-MiniLM-L6-v2`, used frozen (§4.1) |
+| 2 | **Grootendorst (2022)** — BERTopic | The discovery recipe — UMAP before density clustering — and c-TF-IDF for naming clusters (§4.2, §4.4) |
+| 3 | **Lange, Roth, Braun & Buhmann (2004)** | The selection criterion: stability across resamples, which answers the brief's central question (§4.3) |
+
+Supporting references: Ben-Hur et al. (2002) for the subsample-pair estimator we actually
+compute; Hubert & Arabie (1985) and Vinh et al. (2010) for the agreement measures; Devlin et
+al. (2019) for the classifier; McInnes et al. (2018) for the reduction; Campello et al.
+(2013) for HDBSCAN.
+
+### What reading all this changed
+
+The literature disagrees with itself on every one of our three open choices — which encoder,
+which clustering algorithm, how to pick k — and the study closest to our task found that the
+*simpler* option won on two of them. So we do not commit to one encoder, one algorithm or
+one number up front. We write down testable predictions (§1.6) and run a controlled
+comparison, then score the predictions against what happened (§7.3).
+
+## 1.3 Related work on this dataset
+
+**Scharpf et al. (2020), [arXiv:2005.11021](https://arxiv.org/abs/2005.11021)** (JCDL)
+classified and clustered arXiv content with pre-transformer methods — doc2vec and TF-IDF on
+4,900 documents — reaching 82.8% classification accuracy and 69.4% cluster purity. It is
+useful as problem history and as a floor, not as a method we implement.
 
 **Arcan (2026), [arXiv:2601.08841](https://arxiv.org/abs/2601.08841)** — *Triples and
-Knowledge-Infused Embeddings for Clustering and Classification of Scientific Documents.*
+Knowledge-Infused Embeddings for Clustering and Classification of Scientific Documents* — is
+the closest published study: it clusters arXiv papers and trains classifiers on them,
+comparing four encoders (MiniLM, MPNet, SciBERT, SPECTER) and three clustering algorithms.
+Two of its findings informed our setup, and we adopt them as hypotheses rather than as
+facts: plain abstract text outperformed richer representations that added structured
+knowledge, and the two general-purpose sentence encoders beat the two science-specific ones
+at clustering.
 
-This paper does almost exactly our task: it clusters arXiv papers **and** trains classifiers to
-predict arXiv subjects. It compares four ways of representing a paper, four embedding models
-(MiniLM, MPNet, SciBERT, SPECTER) and three clustering algorithms (KMeans, GMM, HDBSCAN).
+**It is not, however, the same task.** Arcan selects the number of clusters by maximising
+`0.5·ARI + 0.5·NMI` **against arXiv's true labels**, and concedes the choice "may inflate
+reported ARI/NMI". That is a legitimate design when the labels are taken as ground truth. It
+is circular under this brief, where the number of categories is stated to be unknown: it
+uses the answer to find the answer, and it structurally cannot discover a category arXiv
+does not already have.
 
-Two findings matter a lot for us:
+The practical consequences are visible in their results. The chosen cluster count moves with
+the input representation — 6, 8, 10 and 8 across four variants — and no run carries error
+bars. Their classification figure of roughly 0.923 macro-F1 is measured on a filtered subset
+against a different label set, so it is a reference point and **not** a target: a macro-F1
+over six categories cannot be compared with one over eight.
 
-- Plain abstract text worked **better** than fancier representations that added structured
-  knowledge. Simpler was stronger.
-- General-purpose sentence models (MiniLM, MPNet) beat the science-specific models (SciBERT,
-  SPECTER) at clustering, even though the science-specific ones were trained on research papers.
+> **What we take from this.** The encoder shortlist and the abstract-only input, both as
+> testable choices. What we deliberately do not take is the selection criterion.
 
-It reports about **0.923 accuracy and 0.923 macro-F1** for abstract-only classification, averaged
-over five runs.
+## 1.4 What we were asked to predict
 
-**What we take from it:** do not assume the specialised, expensive option is better. Test it. We
-also treat the 0.923 figure carefully — it was measured on a *filtered* subset of arXiv, and we do
-not yet know how many categories that involved. A score on 6 categories cannot be compared to a
-score on 8 or 150, so we use it as a reference point, not as a target to hit.
-
-### Turning text into numbers
-
-**Reimers & Gurevych (2019), [arXiv:1908.10084](https://arxiv.org/abs/1908.10084)** —
-*Sentence-BERT.*
-
-Plain BERT is not built for comparing whole texts. If you feed it two abstracts and compare the
-output, the results are poor, because BERT was never trained to make similar texts land near each
-other. Sentence-BERT fixes this by training specifically for similarity.
-
-**Singh et al. (2023), [arXiv:2211.13308](https://arxiv.org/abs/2211.13308)** — *SciRepEval*, the
-benchmark behind SPECTER2.
-
-Tested scientific document embeddings across 24 tasks and found that the best representation
-depends on the kind of task. One embedding is not best at everything.
-
-**What we take from these:** use a model built for similarity, not raw BERT. And since no single
-embedding wins everywhere, compare a few rather than picking one on reputation.
-
-### Finding groups without fixing the number
-
-**Grootendorst (2022), [arXiv:2203.05794](https://arxiv.org/abs/2203.05794)** — *BERTopic.*
-
-A four-step recipe: turn documents into vectors, squash those vectors down to fewer dimensions
-(UMAP), group them (HDBSCAN), then describe each group by the words that make it distinctive
-(class-based TF-IDF). The appeal is that HDBSCAN finds the number of groups by itself and can mark
-odd documents as outliers instead of forcing them somewhere.
-
-**What we take from it:** this is our main discovery method, and the word-based descriptions are how
-we make clusters readable by a human.
-
-**One important warning.** Published work using this approach shows it tends to break data into far
-too many groups. Reported topic counts average around 67 where older methods find 15–22 on the same
-data. In one reported case it produced **3,561 topics on data that humans had labelled with 4**, and
-in several datasets **more than half of all documents were dumped into the outlier bin**.
-
-So we will not simply run HDBSCAN and announce whatever number it returns. That number depends
-heavily on its settings. We treat it as one piece of evidence and always report what fraction of
-papers were left as outliers.
-
-### Deciding how many groups is right
-
-**Lange, Roth, Braun & Buhmann (2004)**, *Stability-Based Validation of Clustering Solutions*,
-Neural Computation 16(6):1299–1323.
-
-The idea is simple and strong. If a grouping reflects something real in the data, you should get
-roughly the same grouping from a different sample of that data. If it is an accident of the
-algorithm, it will come out differently each time. So: take a random part of the data, group it,
-repeat, and measure how much the groupings agree.
-
-**What we take from it:** this is our main tool for choosing the number of categories. Standard
-geometric scores like silhouette tend to favour whatever number happens to look tidy; stability asks
-the better question, which is whether the grouping is *reproducible*.
-
-### Earlier work on this dataset
-
-**Scharpf et al. (2020), [arXiv:2005.11021](https://arxiv.org/abs/2005.11021)** — JCDL.
-
-An early study of classifying and clustering arXiv content, including how to handle mathematical
-notation. It used pre-transformer methods (doc2vec, TF-IDF) on 4,900 documents and reached 82.8%
-classification accuracy and 69.4% cluster purity.
-
-**What we take from it:** mainly historical context and a baseline to beat. We are not implementing
-its methods, so it informs the problem rather than the solution.
-
-### Our top three
-
-The brief asks for three papers referencing the implementation we will use. Our picks, and why:
-
-| # | Paper | Why |
-|---|---|---|
-| 1 | **Arcan (2026)** | Closest published version of this exact task; sets our representation and classification choices |
-| 2 | **Grootendorst (2022)** — BERTopic | The category-discovery method we implement |
-| 3 | **Lange et al. (2004)** | Answers the assignment's central question: how to choose the number of categories |
-
-Supporting references: Sentence-BERT and SciRepEval/SPECTER2 for why we use a similarity-trained
-encoder and why we compare two rather than trusting one,
-SciBERT and BERT for the classifier, Scharpf et al. for problem history.
-
-### The main conclusion from reading all this
-
-We should not start by committing to one embedding model, one clustering algorithm, or one number of
-categories. The literature disagrees with itself on all three, and the paper closest to our task
-found that the *simpler* option won. So we write down testable predictions and run a controlled
-comparison instead of trusting reputation.
-
-## 1.3 What we are being asked to predict
-
-The brief can be read two ways, so we asked rather than guessed. Iris.ai confirmed the
-second reading:
+The brief admits two readings, so we asked rather than guessed. Iris.ai confirmed the
+second:
 
 > "You're right, (b) is the better interpretation. Discovering meaningful categories is an
 > important part of the objective, but we leave the exact methodology up to you."
 
-So the task is settled:
+The task is therefore settled:
 
-- The categories are **discovered from the abstracts**. Their number is an output, not an input.
+- Categories are **discovered from the abstracts**. Their number is an output, not an input.
 - The classifier predicts **those discovered categories**, not arXiv's subject labels.
-- arXiv's own labels are used **only** to interpret and sanity-check what we found. They never
-  influence how many categories we report.
-
-This last point is the one that drives the whole design, so it is worth stating plainly: using
-arXiv labels to choose the number of categories would be circular. It answers an "unknown number"
-question with the known answer. Arcan (2026) does exactly this — it picks the number of clusters by
-maximising `0.5·ARI + 0.5·NMI` against the true labels, and the paper itself concedes this "may
-inflate reported ARI/NMI". We do not repeat it.
+- arXiv's labels are used **only** to interpret and sanity-check. They never influence how
+  many categories we report.
 
 ### Three questions, three separate instruments
 
-The central methodological risk here is mixing up two different questions and answering both with
-one number. We keep them apart:
+The central methodological risk is answering two different questions with one number. We
+keep them apart:
 
 | Question | Instrument | What it may **not** be used for |
 |---|---|---|
-| How many categories are there? | Stability across resamples; DBCV / silhouette | Never uses arXiv labels |
-| What are those categories about? | c-TF-IDF terms, nearest-centroid abstracts, composition against arXiv | Not a score |
+| How many categories are there? | Stability across independent resamples | Never uses arXiv labels |
+| What are those categories about? | c-TF-IDF terms, nearest-centroid abstracts, arXiv composition | Not a score |
 | Can a model assign a new abstract? | Macro-F1 on a held-out split | Only comparable within one label set |
 
-In particular, **a classifier's macro-F1 is not evidence that a taxonomy is good.** Two classifiers
-trained on different label sets cannot be ranked against each other: a trivial 2-category split
-would score near-perfectly and tell us nothing. Taxonomy quality and classifier quality are
-measured separately, by different tools, and we never trade one against the other.
+In particular, **a classifier's macro-F1 is not evidence that a taxonomy is good.** Two
+classifiers trained on different label sets cannot be ranked against each other — a trivial
+two-category split would score near-perfectly and mean nothing. Taxonomy quality and
+classifier quality are measured by different instruments, and we never trade one against the
+other. §5.3 returns to this.
 
-## 1.4 The pipeline we actually ran
+## 1.5 The pipeline
 
-Eight stages, each a script that caches its output so the next one can be re-run without redoing
-the work.
+Ten stages, each a script that caches its output so later stages can re-run without redoing
+the work. [PIPELINE.md](PIPELINE.md) documents each one in full.
 
-| # | Stage | Script | What it produces |
+| # | Stage | Script | Output |
 |---|---|---|---|
 | 1 | Scan the snapshot | `eda_scan.py`, `eda_year_mix.py` | Corpus statistics, year × archive mix |
 | 2 | Sample and split | `preprocess.py` | 150,000 abstracts, fixed 70/15/15 split |
 | 3 | Embed | `embed.py` | Frozen sentence embeddings, L2-normalised |
 | 4 | Reduce and sweep | `cluster.py` | UMAP to 50d; KMeans k=3..20 and HDBSCAN scored |
-| 5 | **Choose the number** | `stability.py` | Stability curve against a structureless null |
+| 5 | **Choose the number** | `stability.py` | Stability curves against a structureless null |
 | 6 | Interpret | `interpret.py` | Per-category terms, examples, arXiv composition |
-| 7 | Classify | `baseline.py`, `train_classifier.py` | Baselines and a fine-tuned BERT |
-| 8 | Tune | `tune.py`, `notebooks/colab_train.ipynb` | Staged search over 13 configurations |
+| 7 | Baselines | `baseline.py` | Majority, TF-IDF+SVM, embeddings+logreg |
+| 8 | Classify | `train_classifier.py` | Fine-tuned transformer |
+| 9 | Verify and export | `check_integrity.py`, `figures.py`, `export_training_set.py` | Invariants, figures, GPU bundle |
+| 10 | Tune | `tune.py`, `notebooks/colab_train.ipynb` | Staged search (10 runs) or full grid (108) |
 
-Four decisions inside that pipeline are worth justifying, because each is a place where the obvious
-choice is wrong.
+Four decisions inside that pipeline are worth justifying up front, because in each case the
+obvious choice is the wrong one.
 
-**The encoder is frozen; nothing is trained to produce embeddings.** Every study we reviewed uses
-off-the-shelf sentence embeddings for scientific-document clustering. Fine-tuning an encoder to
-improve clustering is a separate research problem, and Arcan's evidence suggests it would not help:
-the two science-specific models (SciBERT, SPECTER) lost to the two general-purpose ones (MPNet,
-MiniLM) on this exact task. We therefore compare MiniLM and MPNet and skip the specialised pair.
+**The encoder is frozen; nothing is trained to produce embeddings.** Every study reviewed in
+§1.2 uses off-the-shelf sentence embeddings for scientific-document clustering. Fine-tuning
+an encoder *for clustering* is a separate research problem, and the prior evidence suggests
+the specialised models would not help.
 
-**Only the abstract is encoded — no title.** The brief specifies abstracts, and Arcan found
-abstract-only input beat every richer variant they tried.
+**Only the abstract is encoded — no title.** The brief specifies abstracts, and the closest
+prior study found abstract-only input beat every richer variant it tried.
 
-**UMAP reduction comes before density clustering.** Density estimates degrade badly in high
-dimensions. Arcan ran HDBSCAN on raw embeddings and it collapsed to 3–5 clusters with up to 74% of
-papers marked as noise, which led them to conclude HDBSCAN was the worst of their three algorithms.
-We treat that as a fixable artefact rather than a property of the algorithm, and §4 reports what
-happens when it is fixed.
+**UMAP reduction comes before density clustering**, because density estimates degrade in
+high dimensions. Arcan ran HDBSCAN on raw embeddings and it collapsed to 3–5 clusters with
+up to 74% of papers marked noise, concluding HDBSCAN was the worst of three algorithms. We
+treat that as a fixable artefact rather than a property of the algorithm, and §4.2 reports
+what happens when it is fixed.
 
 **But the number of categories is *not* decided in UMAP space.** UMAP with `min_dist=0.0`
-deliberately manufactures tightly separated clumps. Measured inside that space, every internal
-criterion saturates — our stability score is 1.000 at k=3 and falls monotonically, which would
-simply reproduce the degenerate answer. That measures UMAP's determinism, not structure in the
-data. So the reduction is used where it is needed (density clustering) and the number of categories
-is settled in the original embedding space.
+deliberately manufactures tightly separated clumps, and every internal criterion saturates
+inside that space — measuring UMAP's determinism rather than structure in the data. The
+reduction is used where it is needed, and the number of categories is settled in the
+original embedding space (§4.3).
 
 ### Keeping the scope realistic
 
-The full dataset is 2.7 million papers and the full hyperparameter grid is 108 training runs.
-Neither is necessary, and we cut both deliberately:
+The full snapshot is 3.2 million papers and the full hyperparameter grid is 108 training
+runs. Neither is necessary, and both were cut deliberately:
 
-- One fixed stratified sample of 150,000 abstracts, drawn once and committed as a list of arXiv IDs
-- A 10,000-paper pilot, drawn as a subsample of the main sample, to validate every step cheaply
+- One fixed stratified sample of **150,000** abstracts, drawn once and committed as arXiv IDs
+- A **10,000**-paper pilot to validate every step cheaply, which doubles as an independent
+  replication at a fifteenth of the scale
 - Embeddings computed once and cached
-- A staged hyperparameter search — learning rate, then batch size, then encoder, then seeds —
-  which costs 10 distinct runs instead of 108
+- A staged hyperparameter search costing **10** distinct runs instead of 108 (§6.1)
 
-## 1.5 What we expect to find
+## 1.6 Predictions
 
-Written as predictions we can be wrong about, and scored honestly in §7.
+Written in advance as statements we can be wrong about, and scored honestly in §7.3.
 
-- **H1** — Silhouette and stability will disagree about the number of categories. Where they do, we
-  prefer stability and say so.
-- **H2** — HDBSCAN *after* UMAP reduction will not show the collapse Arcan reported, and will leave
-  far less than 74% of papers as noise.
-- **H3** — The discovered categories will not line up with arXiv's 8 groups. We expect them to
-  merge several non-physics groups and split physics, because arXiv's taxonomy reflects community
-  history while abstracts cluster by shared method and vocabulary.
-- **H4** — Our two reference levels will peak at different numbers of clusters: the 8 groups will
-  favour fewer categories, the 20 archives more.
-- **H5** — A fine-tuned BERT will beat a TF-IDF + LinearSVC baseline on macro-F1. If it does not,
-  that is a finding about how lexically separable the discovered categories are, not a bug.
+- **H1** — Silhouette and stability will disagree about the number of categories. Where they
+  do, we prefer stability and say so.
+- **H2** — HDBSCAN *after* UMAP reduction will not show the collapse Arcan reported, and
+  will leave far less than 74% of papers as noise.
+- **H3** — The discovered categories will not line up with arXiv's 8 top-level groups. We
+  expect them to merge several non-physics groups and split physics, because arXiv's
+  taxonomy reflects community history while abstracts cluster by shared method and
+  vocabulary.
+- **H4** — The two reference levels will peak at different numbers of clusters: the 8 groups
+  favouring fewer categories, the 20 archives more.
+- **H5** — A fine-tuned BERT will beat a TF-IDF + LinearSVC baseline on macro-F1. If it does
+  not, that is a finding about how lexically separable the discovered categories are, not a
+  bug.
 
-### How we score things, and why
+## 1.7 What this study contributes
 
-We report **macro-F1**, not accuracy. The categories are very unbalanced, and accuracy hides this
-completely. Published results on arXiv's 8 top-level classes show the problem:
+A reproducible comparison of ways to represent and group scientific abstracts, reporting a
+number of categories **together with the criterion that justifies it**, showing how those
+categories relate to arXiv's existing taxonomy, and measuring how well a transformer
+classifier generalises to unseen abstracts.
 
-| Model | Accuracy | Macro-F1 |
-|---|---|---|
-| Naive Bayes (TF-IDF) | 0.89 | 0.65 |
-| LinearSVC (TF-IDF) | 0.82 | 0.82 |
+It also documents its own limits. Category granularity is genuinely ambiguous, scientific
+fields overlap, and discovered clusters are not the same kind of object as human-assigned
+subject labels. Where the evidence does not settle a question, we say so rather than
+reporting the flattering number.
 
-Naive Bayes looks better on accuracy and is much worse in reality: it does well on the big classes
-and poorly on the small ones. Our own majority-class baseline makes the same point more sharply —
-see §5.
-
-For comparing groupings we use **AMI and ARI** rather than raw NMI. Raw NMI drifts upward as the
-number of clusters grows, which would unfairly reward splitting the data further. AMI and ARI
-correct for chance (Vinh, Epps & Bailey, JMLR 2010).
-
-For density-based clustering we use **DBCV** rather than silhouette. Silhouette assumes convex,
-roughly spherical clusters, which is exactly the assumption HDBSCAN is built to avoid, so applying
-it to HDBSCAN output would penalise the algorithm for working as intended.
-
-## 1.6 What this study contributes
-
-A reproducible, literature-informed comparison of ways to represent and group scientific abstracts.
-We report a number of categories together with the criteria that justify it, show how those
-categories relate to arXiv's existing taxonomy, and measure how well a transformer classifier
-generalises to unseen abstracts.
-
-We also document the limits. Category granularity is genuinely ambiguous, scientific fields overlap,
-and discovered clusters are not the same kind of object as human-assigned subject labels. Where our
-evidence does not settle a question, we say so rather than picking the flattering number.
-
-> **Reading this report.** Sections 1.2–1.5 were written before the experiments and state
-> what the literature suggested and what we expected to find. Everything from §2 onward
-> reports what actually happened. §7.3 scores the predictions against the results, and
-> §7.4 records the four places our own method was wrong and had to be fixed — including,
-> twice, a conclusion we had already written down.
+> **Reading this report.** Sections 1.2–1.6 were written before the experiments and state
+> what the literature suggested and what we expected. Everything from §2 onward reports what
+> happened. §7.3 scores the predictions against the results, and §7.4 records the four
+> places our own method was wrong and had to be fixed — including, twice, a conclusion we
+> had already written down.
 
 ---
 
@@ -348,30 +435,64 @@ sampled, with no cutoff.
 
 ## 3. Preprocessing
 
-`src/preprocess.py` makes one streaming pass and writes a fixed sample, a fixed split, and a
-committed list of arXiv IDs.
+`src/preprocess.py` makes one streaming pass over the 5.65 GB snapshot and writes a fixed
+sample, a fixed split, and a committed list of arXiv IDs. Three decisions are made here, and
+each is one a reader should be able to check rather than take on trust.
 
-### Filters
+![Sampling](reports/figures/sampling_funnel.png)
 
-| Filter | Effect |
-|---|---|
-| Submitted 2016 or later | 3,224,635 → 2,118,113 |
-| Abstract of at least 20 words | → 2,113,230 eligible |
+### What the filters remove, and why
+
+| Filter | Records | Rationale |
+|---|---|---|
+| arXiv snapshot v309 | 3,224,635 | — |
+| Submitted 2016 or later | 2,118,113 | removes all 24 legacy archive codes and the era when the corpus was overwhelmingly physics |
+| Abstract of at least 20 words | **2,113,230** | drops 4,883 stub abstracts that carry no topical signal |
+| Stratified sample drawn | **150,000** | 7.1% of the eligible frame; see below |
+
+**The 2016 cutoff is the consequential one.** arXiv's composition is not stationary —
+computer science grows from a minor archive to the largest one over the corpus's lifetime
+(§2). Sampling across all years would mean the discovered categories partly encode *when*
+papers were written rather than what they are about. The cost is stated plainly in §7.5: the
+taxonomy describes contemporary research, and the language-models category would not appear
+in a corpus drawn from the 1990s.
 
 ### Text cleaning is deliberately minimal
 
 Whitespace is collapsed. **LaTeX is left intact.** Stripping `$\alpha$` or `\nabla` would remove
-real topical signal from mathematics and physics abstracts — in §6 the mathematics category is
+real topical signal from mathematics and physics abstracts — in §4.4 the mathematics category is
 identified partly by the tokens `mathbb` and `mathcal`. The sentence-transformer tokenisers handle
 the markup without help. No stemming, no lowercasing, no stop-word removal: the encoder is
 pretrained on natural text and expects it unmodified.
 
 ### Stratified sampling, not random sampling
 
-A uniform random draw would leave the rarest archives with too few papers to form a cluster. The
-sample is therefore **stratified on the primary archive and proportional**, so every archive is
-guaranteed to appear while the real class proportions are preserved. Each archive's rows are drawn
-by reservoir sampling (Algorithm R) against a seeded RNG, in the same single pass.
+A uniform random draw would leave the rarest archives with too few papers to form a cluster.
+The sample is therefore **stratified on the primary archive and proportional**: every archive
+is guaranteed to appear, while the real class proportions are preserved. Each archive's rows
+are drawn by reservoir sampling (Algorithm R) against a seeded RNG, in the same single pass.
+
+**Proportional, deliberately not balanced.** Flattening the archives to equal size would be
+easy and would make the downstream classification task look better. We do not, because the
+number of categories is what this project is trying to measure — and a rebalanced sample
+would make that number an artefact of our sampling rather than a property of the literature.
+
+The right-hand panel above is the check. Every one of the 20 archives is drawn in proportion
+to the eligible population, with a largest deviation of **0.000 percentage points**:
+
+| Archive | Population | Sample | Pop. share | Sample share |
+|---|---|---|---|---|
+| cs | 761,535 | 53,930 | 35.95% | 35.95% |
+| math | 398,604 | 28,228 | 18.82% | 18.82% |
+| cond-mat | 176,562 | 12,504 | 8.34% | 8.34% |
+| astro-ph | 166,030 | 11,758 | 7.84% | 7.84% |
+| physics | 151,290 | 10,714 | 7.14% | 7.14% |
+| … | | | | |
+| hep-lat | 6,108 | 433 | 0.29% | 0.29% |
+| nucl-ex | 5,004 | 354 | 0.24% | 0.24% |
+
+That spread — `cs` is **152×** the size of `nucl-ex` — is the reason macro-F1 is the headline
+metric everywhere downstream, and why the classifier weights classes in the loss (§4.5).
 
 | Phase | Papers | Purpose |
 |---|---|---|
@@ -453,7 +574,7 @@ go unchallenged:
   clusters and can refuse to assign a paper.
 
 HDBSCAN is run on a 50-dimensional UMAP reduction, the fix for the failure described in
-§1.4. It is also run on a 50,000-paper subsample: on the full sample it reached 16 GB of
+§1.5. It is also run on a 50,000-paper subsample: on the full sample it reached 16 GB of
 paged memory on a 32 GB machine and made no progress in twenty hours. KMeans has no such
 problem.
 
@@ -697,7 +818,7 @@ split as an error. The 7-cluster HDBSCAN solution scores *higher* on completenes
 archives (0.75 on the pilot) precisely because it leaves the computer-science blob
 undivided — and that blob held 43% of the corpus.
 
-A taxonomy is not better for agreeing with arXiv more. This is exactly why §1.3 forbids
+A taxonomy is not better for agreeing with arXiv more. This is exactly why §1.4 forbids
 using agreement scores to choose between taxonomies, and why the number was settled by
 stability instead.
 
