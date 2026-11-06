@@ -718,8 +718,8 @@ Imbalance is handled with **weights in the loss, not resampling**, so every abst
 seen exactly once per epoch and the sampling distribution fixed in §3 survives intact.
 
 Fine-tuning runs on a GPU. Measured throughput on this machine puts one CPU run at
-about 3.5 hours on the 10,000-paper pilot and roughly 52 hours at full scale; the search
-in §6 needs thirteen of them. `src/export_training_set.py` writes one self-contained file and
+about 3.5 hours on the 10,000-paper pilot and roughly 52 hours at full scale; the staged
+search in §6 needs ten of them, and the full grid 108. `src/export_training_set.py` writes one self-contained file and
 `notebooks/colab_train.ipynb` consumes it on a T4. Everything upstream stays in this
 repository under a fixed seed, so the notebook cannot re-derive the labels differently.
 
