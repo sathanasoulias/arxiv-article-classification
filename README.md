@@ -91,6 +91,16 @@ specific prior study closest to our task is discussed separately in §1.3.
 
 ### Representing text as vectors
 
+Three different numeric representations appear in this project, doing three different jobs.
+It is worth separating them up front, because only one of them feeds the clustering:
+
+| Representation | Where | Used for |
+|---|---|---|
+| **Sentence encoder** — `all-MiniLM-L6-v2`, frozen, 384d, L2-normalised | `embed.py` | **The clustering.** This is how abstracts become numbers for discovery. |
+| **TF-IDF** — word 1–2 grams + char 3–5 grams | `baseline.py` | A baseline *classifier* only. Never an input to the clustering. |
+| **c-TF-IDF** — cluster-level term weights | `interpret.py` | *Naming* clusters once they exist. Not a document representation. |
+| **Fine-tuned BERT** | `train_classifier.py` | Learns its own representation end to end for classification. |
+
 The classical representation is **TF-IDF** over a bag of words — cheap, strong on topical
 tasks, and blind to word order and synonymy. It remains a serious baseline, and we use it as
 one (§5.2).
@@ -294,6 +304,27 @@ classifier quality are measured by different instruments, and we never trade one
 other. §5.3 returns to this.
 
 ## 1.5 The pipeline
+
+![Pipeline](reports/figures/pipeline.png)
+
+The diagram is the argument in one picture. Read it for two things: the **single green box**
+is the only representation the clustering ever sees, and the **dashed red box** is the only
+place arXiv's own labels are allowed to enter — pointing at interpretation, after the number
+has already been decided.
+
+### What the data actually is at each step
+
+| Step | Object | Concretely |
+|---|---|---|
+| Snapshot | JSON Lines | 3,224,635 records, 5.65 GB |
+| After filters | — | 2,113,230 eligible abstracts |
+| Sample | `sample.parquet` | 150,000 rows: id, abstract, archive, group, split |
+| Embeddings | `embeddings_minilm.npy` | **150,000 × 384** float32, every row unit-length |
+| UMAP | `umap_minilm_50d.npy` | 150,000 × 50 float32 |
+| Cluster sweep | `clustering_main_minilm.csv` | 23 rows × 15 columns, one row per configuration |
+| Stability | 3 × `stability_*_n*.csv` | 18 rows each (k=3..20), mean and sd over 10 repeats |
+| Labels | `labels_minilm_kmeans_k8_emb.npy` | 150,000 integers in 0..7 |
+| Training bundle | `trainset_*.parquet` | 94.6 MB, sha256 `71568b1c134fef65` |
 
 Ten stages, each a script that caches its output so later stages can re-run without redoing
 the work. [PIPELINE.md](PIPELINE.md) documents each one in full.

@@ -32,7 +32,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, to_rgba
 
 from cluster import UMAP_DIMS
 from config import FIGURES, REPORTS, SEED, SPLITS_DIR, work_path
@@ -812,3 +812,117 @@ def fig_sampling():
          f"{worst:.3f} percentage points. Proportions are preserved deliberately: "
          f"rebalancing would make the discovered number of categories an artefact of "
          f"our sampling.")
+
+
+
+
+def fig_pipeline():
+    """The approach end to end, with the data shape at every step.
+
+    The report's central discipline is that arXiv's labels never reach the step that
+    chooses the number of categories. That is a claim about the *shape* of the pipeline,
+    so it is drawn rather than only asserted: the labels enter on one short arrow near
+    the end, pointing at interpretation, and nowhere else.
+
+    The bottom band runs right-to-left (a serpentine layout) so that the step after
+    "k = 8" sits directly beneath it. Laid out left-to-right, that connector has to cross
+    the whole figure and cuts through three boxes on the way.
+    """
+    from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+
+    fig, ax = figure(13.2, 7.0)
+    ax.set_xlim(0, 100)
+    ax.set_ylim(6, 96)
+    ax.axis("off")
+
+    BAND = {"data": 88, "repr": 66, "discover": 42, "classify": 15}
+    BOX_H = 9.4
+
+    def box(x, y, w, title, sub=None, colour=CATEGORICAL[0], fill=0.10):
+        ax.add_patch(FancyBboxPatch(
+            (x, y - BOX_H / 2), w, BOX_H,
+            boxstyle="round,pad=0.6,rounding_size=1.6",
+            linewidth=1.6, edgecolor=colour,
+            facecolor=to_rgba(colour, fill), zorder=3))
+        ax.text(x + w / 2, y + (1.4 if sub else 0), title, ha="center", va="center",
+                fontsize=9.3, color=INK, fontweight="bold", zorder=4)
+        if sub:
+            ax.text(x + w / 2, y - 2.4, sub, ha="center", va="center",
+                    fontsize=8.0, color=INK_2, zorder=4)
+        return (x, x + w, y)
+
+    def arrow(a, b, colour=INK_MUTED, rad=0.0, lw=1.5):
+        ax.add_patch(FancyArrowPatch(
+            a, b, arrowstyle="-|>", mutation_scale=13, linewidth=lw, color=colour,
+            zorder=2, connectionstyle=f"arc3,rad={rad}", shrinkA=3, shrinkB=3))
+
+    def band(y, text):
+        ax.text(0.4, y, text, ha="left", va="center", fontsize=8.4,
+                color=INK_MUTED, fontweight="bold", rotation=90)
+
+    # ---- Band 1: data, left to right --------------------------------------------------
+    band(BAND["data"], "DATA")
+    a = box(5, BAND["data"], 20, "arXiv snapshot v309", "3,224,635 records", INK_MUTED, .12)
+    b = box(30, BAND["data"], 20, "Filter", "2016+, abstract ≥ 20 words", INK_MUTED, .12)
+    c = box(55, BAND["data"], 20, "Stratified sample", "150,000 abstracts", CATEGORICAL[0])
+    d = box(80, BAND["data"], 18, "Fixed split", "105k / 22.5k / 22.5k", CATEGORICAL[0])
+    for p, q in ((a, b), (b, c), (c, d)):
+        arrow((p[1], p[2]), (q[0], q[2]))
+    ax.text(40, BAND["data"] - 7.8, "2,113,230 eligible", ha="center",
+            fontsize=7.8, color=INK_MUTED, style="italic")
+
+    # ---- Band 2: representation -------------------------------------------------------
+    band(BAND["repr"], "REPRESENT")
+    e = box(26, BAND["repr"], 48,
+            "all-MiniLM-L6-v2   —   frozen sentence encoder",
+            "150,000 × 384 float32, L2-normalised", CATEGORICAL[2])
+    arrow((d[0] + 9, d[2] - BOX_H / 2), (e[1] - 10, e[2] + BOX_H / 2), rad=-0.22)
+    ax.text(50, BAND["repr"] - 8.4,
+            "abstracts only — no titles, no TF-IDF, no arXiv labels, nothing trained",
+            ha="center", va="center", fontsize=8.1, color=CATEGORICAL[2],
+            fontweight="bold")
+
+    # ---- Band 3: discovery, left to right ---------------------------------------------
+    band(BAND["discover"], "DISCOVER")
+    f = box(5, BAND["discover"], 17, "UMAP → 50d", "for density clustering")
+    g = box(25, BAND["discover"], 19, "Cluster sweep", "KMeans k=3..20, HDBSCAN")
+    h = box(47, BAND["discover"], 22, "Stability × 3 sweeps",
+            "10k / 20k / 50k  vs sphere null", CATEGORICAL[3])
+    i = box(72, BAND["discover"], 23, "k = 8", "stable in every sweep", CATEGORICAL[3], .24)
+    arrow((e[0] + 8, e[2] - BOX_H / 2), (f[0] + 8, f[2] + BOX_H / 2), rad=0.22)
+    for p, q in ((f, g), (g, h), (h, i)):
+        arrow((p[1], p[2]), (q[0], q[2]))
+    ax.text(13.5, BAND["discover"] - 7.9, "k is NOT decided here", ha="center",
+            fontsize=7.8, color=INK_MUTED, style="italic")
+
+    # ---- Band 4: runs RIGHT TO LEFT, so it starts directly under k = 8 ------------------
+    band(BAND["classify"], "USE")
+    j = box(72, BAND["classify"], 23, "Interpret", "c-TF-IDF, centroid papers")
+    k = box(39, BAND["classify"], 27, "Baselines", "TF-IDF + LinearSVC → 0.9005")
+    m = box(5, BAND["classify"], 30, "Fine-tune bert-base",
+            "0.9013 macro-F1 (pilot scale)", CATEGORICAL[1])
+    arrow((i[0] + 11.5, i[2] - BOX_H / 2), (j[0] + 11.5, j[2] + BOX_H / 2))
+    arrow((j[0], j[2]), (k[1], k[2]))
+    arrow((k[0], k[2]), (m[1], m[2]))
+
+    # ---- The one place arXiv labels are allowed ----------------------------------------
+    cx0, cy = 36, (BAND["discover"] + BAND["classify"]) / 2 - 2
+    ax.add_patch(FancyBboxPatch(
+        (cx0, cy - 3.9), 30, 7.8,
+        boxstyle="round,pad=0.5,rounding_size=1.4", linewidth=1.5,
+        edgecolor=CATEGORICAL[7], linestyle=(0, (4, 2)),
+        facecolor=to_rgba(CATEGORICAL[7], 0.08), zorder=3))
+    ax.text(cx0 + 15, cy + 1.5, "arXiv's own labels", ha="center", va="center",
+            fontsize=8.8, color=CATEGORICAL[7], fontweight="bold", zorder=4)
+    ax.text(cx0 + 15, cy - 1.6, "enter only here — to interpret and validate",
+            ha="center", va="center", fontsize=7.7, color=INK_2, zorder=4)
+    arrow((cx0 + 30, cy), (j[0] + 4, j[2] + BOX_H / 2 - 0.5),
+          colour=CATEGORICAL[7], rad=-0.25, lw=1.3)
+
+    fig.suptitle("How the number of categories is decided — and where arXiv's labels are allowed",
+                 x=0.012, ha="left", fontsize=12.5, color=INK, fontweight="bold", y=0.97)
+    save(fig, "pipeline.png",
+         "Every step is a script in src/ that caches its output. The sentence encoder is the "
+         "only representation the clustering sees; TF-IDF appears afterwards, as a baseline "
+         "classifier and as the c-TF-IDF used to name clusters. The selection function in "
+         "stability.py reads the stability curve and no other column.")
