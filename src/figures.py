@@ -827,6 +827,13 @@ def fig_pipeline():
     The bottom band runs right-to-left (a serpentine layout) so that the step after
     "k = 8" sits directly beneath it. Laid out left-to-right, that connector has to cross
     the whole figure and cuts through three boxes on the way.
+
+    UMAP has no box of its own. Drawn as a step on the spine it reads as part of the path
+    to k, which is the one thing it must not be: KMeans is fitted in the original embedding
+    space and so is the stability measurement. The reduction is required by HDBSCAN and
+    used for the 2D views, so it is named in the cluster-sweep subtitle instead. Giving it
+    a box would also put the diagram at odds with §7.4, which reports measuring stability
+    inside the reduction as an error — 17 of 18 candidates clear the threshold there.
     """
     from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 
@@ -884,16 +891,17 @@ def fig_pipeline():
 
     # ---- Band 3: discovery, left to right ---------------------------------------------
     band(BAND["discover"], "DISCOVER")
-    f = box(5, BAND["discover"], 17, "UMAP → 50d", "for density clustering")
-    g = box(25, BAND["discover"], 19, "Cluster sweep", "KMeans k=3..20, HDBSCAN")
-    h = box(47, BAND["discover"], 22, "Stability × 3 sweeps",
+    g = box(5, BAND["discover"], 26, "Cluster sweep", "KMeans k=3..20, HDBSCAN on UMAP")
+    h = box(36, BAND["discover"], 30, "Stability × 3 sweeps",
             "10k / 20k / 50k  vs sphere null", CATEGORICAL[3])
     i = box(72, BAND["discover"], 23, "k = 8", "stable in every sweep", CATEGORICAL[3], .24)
-    arrow((e[0] + 8, e[2] - BOX_H / 2), (f[0] + 8, f[2] + BOX_H / 2), rad=0.22)
-    for p, q in ((f, g), (g, h), (h, i)):
+    arrow((e[0] + 8, e[2] - BOX_H / 2), (g[0] + 9, g[2] + BOX_H / 2), rad=0.22)
+    for p, q in ((g, h), (h, i)):
         arrow((p[1], p[2]), (q[0], q[2]))
-    ax.text(13.5, BAND["discover"] - 7.9, "k is NOT decided here", ha="center",
+    ax.text(18, BAND["discover"] - 7.9, "k is NOT decided here", ha="center",
             fontsize=7.8, color=INK_MUTED, style="italic")
+    ax.text(51, BAND["discover"] - 7.9, "measured in the embedding space, not UMAP",
+            ha="center", fontsize=7.8, color=INK_MUTED, style="italic")
 
     # ---- Band 4: runs RIGHT TO LEFT, so it starts directly under k = 8 ------------------
     band(BAND["classify"], "USE")
@@ -925,4 +933,7 @@ def fig_pipeline():
          "Every step is a script in src/ that caches its output. The sentence encoder is the "
          "only representation the clustering sees; TF-IDF appears afterwards, as a baseline "
          "classifier and as the c-TF-IDF used to name clusters. The selection function in "
-         "stability.py reads the stability curve and no other column.")
+         "stability.py reads the stability curve and no other column. The UMAP reduction is "
+         "not drawn as a step because it is not on the path to k: HDBSCAN requires it and the "
+         "2D views use it, but KMeans and the stability measurement both run in the original "
+         "embedding space — §7.4 reports what happens when they do not.")
