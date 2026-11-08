@@ -150,12 +150,12 @@ list that as a limitation rather than claiming it would not matter.
 | Configuration | "Best" score | Largest cluster |
 |---|---|---|
 | KMeans k=4 | silhouette **0.5516 — the optimum** | **45.6%** of the corpus |
-| HDBSCAN mcs=100 | DBCV **0.631** | **82.7%**, only 2 clusters |
+| HDBSCAN mcs=500 | DBCV **0.7164 — the optimum** | **81.7%**, only 2 clusters |
 | KMeans k=8 | silhouette 0.4383 | 18.5% |
 
 **Speaker notes.** If you select k by silhouette — the textbook move — you get four
 categories, one of which holds nearly half of all research. If you let HDBSCAN find its
-own number by DBCV, you get two, one holding 82.7%. Both are *optimal* by their own
+own number by DBCV, you get two, one holding 81.7%. Both are *optimal* by their own
 criterion and both are useless as a taxonomy.
 
 This is not a failure of the metrics; it is what they measure. Silhouette rewards

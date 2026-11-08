@@ -234,8 +234,9 @@ all of computer science as one class.
 | KMeans k=4 | **silhouette 0.5516 — the optimum** | **45.6%** | degenerate |
 | KMeans k=3 | silhouette 0.5024 | 45.3% | degenerate |
 | KMeans k=8 | silhouette 0.4383 | 18.5% | balanced |
-| HDBSCAN mcs=100 | **DBCV 0.631** | **82.7%**, 2 clusters | degenerate |
-| HDBSCAN mcs=250 | DBCV 0.643 | 42.6%, 3 clusters | degenerate |
+| HDBSCAN mcs=500 | **DBCV 0.7164 — the optimum** | **81.7%**, 2 clusters | degenerate |
+| HDBSCAN mcs=100 | DBCV 0.6308 | 82.7%, 2 clusters | degenerate |
+| HDBSCAN mcs=250 | DBCV 0.6433 | 42.6%, 3 clusters | degenerate |
 
 Both internal criteria reward degeneracy on this data. Silhouette's optimum puts nearly
 half the corpus in one cluster; DBCV's best score sits on a two-cluster partition
